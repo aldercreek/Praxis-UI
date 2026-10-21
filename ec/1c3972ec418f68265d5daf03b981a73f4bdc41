@@ -1,0 +1,93 @@
+tests/e2e/desktop.spec.ts
+  s_abc0052df0c3e8::t_c682f441c62200 54
+  s_abc0052df0c3e8::t_6416104ed7ca67 77-85
+  s_abc0052df0c3e8::t_f103dbb5837ec8 19
+  s_abc0052df0c3e8::t_35a1e20839a174 14-17
+  s_abc0052df0c3e8::t_4f9fd53f46dc55 1-13,18,20-21,23-37,39-43,45-50,55-61,63,65,67,69,71-74,76,86-90
+.gitignore
+  s_d0b4ccb90bd8ee::t_76e78c17bd33fa 1-11
+src/renderer/src/state.test.ts
+  s_abc0052df0c3e8::t_5781206c7ba516 3,56
+  s_abc0052df0c3e8::t_8861d04fa3ff53 61-62,64-76,78-121
+  s_abc0052df0c3e8::t_5143ab486a6287 123-146
+  s_abc0052df0c3e8::t_e968910edb754f 147-154
+  s_abc0052df0c3e8::t_6c9e23ee5dbff6 1-2,4-13,15-55,57-60,63,122,155
+tests/fixtures/ui-server.cjs
+  s_abc0052df0c3e8::t_c682f441c62200 93
+  s_abc0052df0c3e8::t_4f9fd53f46dc55 1-92,94-107
+src/renderer/src/App.tsx
+  s_abc0052df0c3e8::t_69215e52e988ae 68,207-213
+  s_abc0052df0c3e8::t_1dcc7dd5c5540d 252-253
+  s_abc0052df0c3e8::t_6eaf01f5808b5b 2-5,7-18,20-22,24-34,36-42,44-51,54-62,70-73,75-80,85-86,88,90,92-93,96-104,108,110-115,118,123,125-126,129-133,135-170,172,181-182,184-190,192-200,202-206,214-251,254-257,259-262,265,267,269-277,280,283-286,289,291-292,294,296,298-301
+  s_abc0052df0c3e8::t_fd60ad1c6ae10f 6,191
+  s_abc0052df0c3e8::t_5781206c7ba516 1,74,89
+  s_79fa37418a0fa8::t_af30b83c8bd97b 19,23,35,43,52-53,63-67,69,81-84,87,94,105-107,109,116-117,119-122,124,127-128,134,171,173-180,183,201,258,263-264,266,268,278,281-282,287-288,290,293,295,297
+  s_abc0052df0c3e8::t_5143ab486a6287 91,95,279
+src/renderer/src/styles.css
+  s_abc0052df0c3e8::t_69215e52e988ae 169-170
+  s_abc0052df0c3e8::t_705b3006ddf1f3 181-183
+  s_abc0052df0c3e8::t_8c22c3da96343c 1-168,171-180,184-269
+playwright.config.ts
+  s_abc0052df0c3e8::t_4f9fd53f46dc55 1-9
+src/renderer/src/usePraxis.ts
+  s_abc0052df0c3e8::t_2909c80eb96ac9 157-160
+  s_abc0052df0c3e8::t_5781206c7ba516 22-23,54,62-64,66,69-71,94-95,98-99,103-104,109
+  s_abc0052df0c3e8::t_1dcc7dd5c5540d 68,72-75,113-116,133,161,174
+  s_abc0052df0c3e8::t_e1be167a46c8b1 1-10,12-21,24-53,55-61,65,67,76-90,93,96-97,100-102,105-108,110-112,117-132,134-152,154-156,162-173,175-184,186-223
+  s_abc0052df0c3e8::t_4eb5d630ccad2f 91-92
+tests/backend-client.test.ts
+  s_abc0052df0c3e8::t_75bb4f976638a3 1-126,128-135,138-140,142-146,149-153,155-178,180-182
+src/main/settings.ts
+  s_abc0052df0c3e8::t_77ccf3e1811eb5 1-14,29-34,36-69,71-73,76-77,79-80,82-102
+  s_abc0052df0c3e8::t_c682f441c62200 15-28,35
+src/main/index.ts
+  s_abc0052df0c3e8::t_6d94740237ec22 14,34,36,38-39,41-53,64,100,103-106,108,110-113,144,146,148-149
+  s_abc0052df0c3e8::t_77ccf3e1811eb5 1-13,15-30,32-33,54-63,65-87,89-94,97-99,101,114-116,118,120-126,128-131,133,135-139,141-143,145,150-177,180-203
+src/renderer/src/state.ts
+  s_abc0052df0c3e8::t_e968910edb754f 132,135-136
+  s_abc0052df0c3e8::t_f13227ea6ab744 37,40-44,47-49,51,134,186,188,195,197,199,211,213-215,217
+  s_abc0052df0c3e8::t_69215e52e988ae 9,138
+  s_abc0052df0c3e8::t_5143ab486a6287 103,113
+  s_abc0052df0c3e8::t_fd60ad1c6ae10f 1-6,10-34,39,52-65,67-73,75-83,85,87-89,91-93,95,97-102,104-112,114-122,124-131,133,139-145,147-162,164-168,170-178,180-181,184-185,187,191-194,198,200-210,216,218,220-224
+  s_abc0052df0c3e8::t_705b3006ddf1f3 35-36,66
+  s_abc0052df0c3e8::t_2909c80eb96ac9 84,163
+  s_abc0052df0c3e8::t_4bb1c6360553c0 7-8,38,45-46,50,74,94,137,212
+package.json
+  s_abc0052df0c3e8::t_8be7541129b5c1 1-59
+tests/fixtures/rpc-fixture.cjs
+  s_abc0052df0c3e8::t_75bb4f976638a3 1-75
+src/main/backend-client.ts
+  s_abc0052df0c3e8::t_4f9fd53f46dc55 1-42,44-60,62,64-65,67-87,89-95,97-102,104-115,117,119-122,124-148,150-200,202-205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.51-trip",
+  "base_commit_sha": "ec1c3972ec418f68265d5daf03b981a73f4bdc41",
+  "prompts": {},
+  "sessions": {
+    "s_79fa37418a0fa8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15c0f-65bb-7d11-b6de-ee719469b708",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    },
+    "s_abc0052df0c3e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a156f3-2d77-7d52-9689-8c8dfc80dd8f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    },
+    "s_d0b4ccb90bd8ee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a158bc-d06d-7e23-bdd9-e0aa573d73b5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    }
+  }
+}
