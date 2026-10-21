@@ -1,0 +1,59 @@
+{
+  "name": "praxis-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Praxis desktop agent workspace",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && electron-vite build",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "package": "npm run build && electron-builder --dir"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^24.7.0",
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.4",
+    "electron": "^44.9.1",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^4.0.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9",
+    "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "dev.praxis.desktop",
+    "productName": "Praxis",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "dir"
+    },
+    "mac": {
+      "target": "dir",
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": "dir",
+      "category": "Development"
+    }
+  }
+}
