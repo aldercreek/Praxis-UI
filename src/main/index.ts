@@ -160,6 +160,7 @@ function createWindow(): void {
   window = new BrowserWindow({
     width: 1220, height: 820, minWidth: 760, minHeight: 560,
     title: 'Praxis', backgroundColor: '#ffffff', show: false,
+    icon: join(app.getAppPath(), 'resources', 'brand', 'icon.png'),
     frame: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -185,6 +186,7 @@ function createWindow(): void {
 }
 
 if (hasLock) void app.whenReady().then(() => {
+  if (process.platform === 'win32') app.setAppUserModelId('dev.praxis.desktop')
   settings = new SettingsStore(join(app.getPath('userData'), 'settings.json'), app.getAppPath())
   backend.on('event', event => { if (!window?.webContents.isDestroyed()) window?.webContents.send('praxis:event', event) })
   backend.on('connection', status => { if (!window?.webContents.isDestroyed()) window?.webContents.send('praxis:connection', status) })

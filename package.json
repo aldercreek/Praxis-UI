@@ -11,7 +11,8 @@
     "build": "npm run typecheck && electron-vite build",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "package": "npm run build && electron-builder --dir"
+    "icons": "electron scripts/generate-icons.cjs",
+    "package": "npm run icons && npm run build && electron-builder --dir"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
@@ -42,10 +43,12 @@
     },
     "files": [
       "out/**/*",
-      "package.json"
+      "package.json",
+      "resources/brand/icon.png"
     ],
     "win": {
-      "target": "dir"
+      "target": "dir",
+      "icon": "resources/brand/icon.ico"
     },
     "mac": {
       "target": "dir",

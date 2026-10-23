@@ -58,7 +58,24 @@ input.on('line', line => {
     event(s, 'TurnStarted', { task: p.text })
     s.messages.push({ id: `user:${s.turn}`, role: 'user', content: p.text, turn_id: s.turn, agent_id: 'main', status: 'completed' })
     event(s, 'ModelRequestStarted', { request_number: 1 })
-    if (p.text.includes('长任务')) {
+    if (p.text.includes('工具展示')) {
+      const introduction = '我先看看项目结构。'
+      event(s, 'AssistantTextDelta', { request_number: 1, text: introduction })
+      event(s, 'ModelRequestCompleted', { request_number: 1, output_text: introduction })
+      const completedTool = (call_id, tool_name, args, output, success = true) => {
+        event(s, 'ToolCallPrepared', { call_id, tool_name, arguments: args })
+        event(s, 'ToolStarted', { call_id, tool_name })
+        event(s, 'ToolFinished', { call_id, tool_name, result: { success, output } })
+      }
+      completedTool('list', 'list_files', { relative_path: '.' }, 'src/\ntests/\nREADME.md\npyproject.toml')
+      completedTool('readme', 'read_file', { relative_path: 'README.md' }, '# Praxis\nA local agent runtime.')
+      completedTool('agent', 'read_file', { relative_path: 'src/praxis_agent/agent.py', start_line: 1, end_line: 80 }, 'class Agent:\n    def run(self, task):\n        return self.loop(task)')
+      completedTool('command', 'run_command', { command: 'Get-ChildItem -Path src\\praxis_agent -Recurse -File -Filter *.py' }, 'agent.py\ndesktop/server.py\ntools/registry.py')
+      completedTool('failed', 'run_command', { command: 'Get-ChildItem -Path tests\\missing -Recurse -File' }, 'Cannot find path tests\\missing because it does not exist.', false)
+      event(s, 'ToolCallPrepared', { call_id: 'live', tool_name: 'run_command', arguments: { command: 'python -m pytest tests -q' } })
+      event(s, 'ToolStarted', { call_id: 'live', tool_name: 'run_command' })
+      s.timer = setInterval(() => event(s, 'ToolOutputDelta', { call_id: 'live', tool_name: 'run_command', stream: 'stdout', text: 'Checking desktop protocol…\n' }), 400)
+    } else if (p.text.includes('长任务')) {
       event(s, 'AssistantTextDelta', { request_number: 1, text: '任务正在执行，可以继续补充要求。' })
       s.timer = setInterval(() => event(s, 'ToolOutputDelta', { call_id: 'stream', tool_name: 'run_command', stream: 'stdout', text: 'working\n' }), 500)
     } else if (p.text.includes('审批')) {

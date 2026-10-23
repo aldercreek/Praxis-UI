@@ -1,15 +1,18 @@
 import { memo, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronDown, ChevronRight, Circle, CircleAlert, Copy, FileCode2, Folder, FolderOpen, GitBranch, LoaderCircle, Maximize2, MessageSquare, Minus, PanelLeft, Plus, Search, Settings2, ShieldCheck, Square, Terminal, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronDown, ChevronRight, Circle, CircleAlert, Copy, Folder, GitBranch, LoaderCircle, Maximize2, Minus, PanelLeft, Plus, Search, Settings2, ShieldCheck, Square, X } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import praxisMark from '../../../resources/brand/praxis-mark.svg'
+import praxisWordmark from '../../../resources/brand/praxis-wordmark.svg'
 import type { Approval, DesktopSettings } from '../../shared/protocol'
-import { isBusy, isChildAgent, textOf, type DisplayMessage, type PlanStep } from './state'
+import { isBusy, isChildAgent, type DisplayMessage, type PlanStep } from './state'
+import { groupTranscript, presentTool } from './toolPresentation'
 import { baseName, errorMessage, usePraxis } from './usePraxis'
 
 type Praxis = ReturnType<typeof usePraxis>
 
 function PraxisMark({ small = false }: { small?: boolean }) {
-  return <svg aria-hidden="true" width={small ? 18 : 30} height={small ? 18 : 30} viewBox="0 0 32 32" fill="none"><path d="M7 26V6h10.5C23 6 26 9.3 26 14s-3 8-8.5 8H13v-5h4.5c2.1 0 3.4-1.1 3.4-3s-1.3-3-3.4-3H12v15H7Z" fill="currentColor" /></svg>
+  return <img className="praxis-mark" aria-hidden="true" alt="" src={praxisMark} width={small ? 18 : 28} height={small ? 18 : 28} />
 }
 
 function IconButton({ label, children, onClick, disabled, className = '' }: { label: string; children: ReactNode; onClick?: () => void; disabled?: boolean; className?: string }) {
@@ -46,30 +49,37 @@ function CodeBlock({ children }: { children: ReactNode }) {
 }
 
 function ToolMessage({ message }: { message: DisplayMessage }) {
-  const busy = message.status === 'running' || message.status === 'pending'
+  const tool = presentTool(message)
   const argument = message.arguments || {}
-  const preview = textOf(argument.path ?? argument.file_path ?? argument.command ?? argument.query ?? argument.code ?? '').split('\n')[0]
-  const tool = message.tool_name || (message.command ? 'Terminal' : 'Tool')
-  const status = message.status === 'denied' ? 'Denied' : message.status === 'cancelled' ? 'Stopped' : message.error || message.status === 'failed' ? 'Failed' : message.status === 'approval' ? 'Awaiting approval' : busy ? 'Running' : 'Complete'
-  return <details className={`tool-message ${message.error ? 'tool-error' : ''}`}>
-    <summary>
-      <ChevronRight className="disclosure-icon" size={13} />
-      {busy ? <LoaderCircle className="spin" size={14} /> : message.error ? <CircleAlert size={14} /> : <Terminal size={14} />}
-      <span className="tool-name">{tool}</span>
-      <span className="tool-preview" title={preview}>{preview}</span>
-      <span className="tool-status">{status}</span>
+  return <details className={`tool-message ${tool.status === 'Failed' ? 'tool-error' : ''}`}>
+    <summary aria-label={`${tool.label}${tool.target ? ` ${tool.target}` : ''} · ${tool.status}`}>
+      <span className="tool-name" title={tool.name}>{tool.label}</span>
+      {tool.target && <span className="tool-target" title={tool.fullTarget}>{tool.target}</span>}
+      {tool.context && <span className="tool-context" title={tool.context}>{tool.context}</span>}
+      {tool.status !== 'Complete' && <span className={`tool-status ${tool.status === 'Awaiting approval' ? 'tool-approval' : ''}`}>{tool.running ? <><LoaderCircle className="spin" size={12} aria-hidden="true" /><span className="visually-hidden">Running</span></> : tool.status}</span>}
+      <ChevronRight className="disclosure-icon" size={12} aria-hidden="true" />
     </summary>
     <div className="tool-details">
+      <div className="tool-detail-heading"><span title={tool.name}>{tool.name}</span><span>{tool.status}</span></div>
       {isChildAgent(message.agent_id) && <p className="tool-agent">Subtask · {message.agent_id}</p>}
-      {Object.keys(argument).length > 0 && <><div className="detail-label">Arguments</div><pre>{JSON.stringify(argument, null, 2)}</pre></>}
-      {message.command && <><div className="detail-label">Command</div><pre>{message.command}</pre></>}
+      {tool.command && <><div className="detail-label">Command <CopyButton text={tool.command} label="Copy command" /></div><pre>{tool.command}</pre></>}
       {message.output && <><div className="detail-label">Live output</div><pre className="terminal-output">{message.output}</pre></>}
-      {message.content && message.content !== message.output && <><div className="detail-label">Result <CopyButton text={message.content} /></div><pre>{message.content}</pre></>}
+      {message.content && message.content !== message.output && <><div className="detail-label">Result <CopyButton text={message.content} /></div><pre className={['Failed', 'Denied', 'Stopped'].includes(tool.status) ? 'tool-result-prose' : undefined}>{message.content}</pre></>}
       {message.file_change?.diff && <><div className="detail-label">{message.file_change.path}<span>+{message.file_change.added} / −{message.file_change.removed}</span></div><pre className="file-diff">{message.file_change.diff.split('\n').map((line, index) => <span key={index} className={line.startsWith('+') ? 'diff-add' : line.startsWith('-') ? 'diff-remove' : ''}>{line}{'\n'}</span>)}</pre></>}
-      {!message.content && !message.output && <div className="tool-waiting">{message.status === 'approval' ? 'Execution will continue after approval.' : message.status === 'denied' ? 'This tool call was denied.' : message.status === 'cancelled' ? 'Tool execution stopped.' : busy ? 'Waiting for tool results…' : 'Tool call finished.'}</div>}
+      {!message.content && !message.output && <div className="tool-waiting">{message.status === 'approval' ? 'Execution will continue after approval.' : message.status === 'denied' ? 'This tool call was denied.' : message.status === 'cancelled' ? 'Tool execution stopped.' : tool.running || message.status === 'pending' ? 'Waiting for tool results…' : 'No output.'}</div>}
+      {Object.keys(argument).length > 0 && <details className="tool-arguments"><summary><ChevronRight className="disclosure-icon" size={12} aria-hidden="true" />Parameters</summary><pre>{JSON.stringify(argument, null, 2)}</pre></details>}
     </div>
   </details>
 }
+
+const Transcript = memo(function Transcript({ messages }: { messages: DisplayMessage[] }) {
+  return groupTranscript(messages).map(item => item.role === 'tool-group'
+    ? <details className="tool-group" key={item.id}>
+      <summary><span className="tool-group-label">Explored workspace</span><span className="tool-context">{item.messages.length} steps</span><ChevronRight className="disclosure-icon" size={12} aria-hidden="true" /></summary>
+      <div className="tool-group-items">{item.messages.map(message => <ToolMessage key={message.id} message={message} />)}</div>
+    </details>
+    : <Message key={item.id} message={item} />)
+})
 
 const Message = memo(function Message({ message }: { message: DisplayMessage }) {
   if (message.role === 'tool') return <ToolMessage message={message} />
@@ -77,12 +87,14 @@ const Message = memo(function Message({ message }: { message: DisplayMessage }) 
     {message.error ? <CircleAlert size={14} /> : message.agent_id ? <GitBranch size={14} /> : <Square size={11} />}
     <span>{message.content}{message.agent_id && <span className="muted"> · {message.status || message.agent_id}</span>}</span>
   </div>
-  return <article className={`message message-${message.role}`}>
-    <div className="message-label">{message.role === 'user' ? 'You' : <><PraxisMark small /><span>{isChildAgent(message.agent_id) ? `Subtask · ${message.agent_id}` : 'Praxis'}</span></>}
+  const deliveryStatus = ['queued', 'sending', 'paused'].includes(message.status || '')
+  return <article className={`message message-${message.role}`} aria-label={message.role === 'user' ? 'Your message' : 'Assistant response'}>
+    {(isChildAgent(message.agent_id) || deliveryStatus) && <div className="message-label">
+      {isChildAgent(message.agent_id) && <span>Subtask · {message.agent_id}</span>}
       {message.status === 'queued' && <span className="queued-label">Queued</span>}
       {message.status === 'sending' && <span className="queued-label">Sending</span>}
       {message.status === 'paused' && <span className="queued-label">Not received</span>}
-    </div>
+    </div>}
     {message.role === 'user' ? <div className="user-content">{message.content}</div> : <MarkdownContent content={message.content} />}
     {message.role === 'assistant' && message.status !== 'streaming' && <div className="message-actions"><CopyButton text={message.content} label="Copy response" /></div>}
   </article>
@@ -114,24 +126,24 @@ function Sidebar({ praxis, openSettings, collapsed, toggleSidebar }: { praxis: P
   const [query, setQuery] = useState('')
   const sessions = praxis.sessions.filter(session => session.title.toLowerCase().includes(query.toLowerCase()))
   return <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="Session navigation">
-    <div className="brand-row"><span className="brand"><PraxisMark small />Praxis</span><IconButton label="Collapse sidebar" onClick={toggleSidebar}><PanelLeft size={15} /></IconButton></div>
+    <div className="brand-row"><span className="brand"><span className="brand-symbol"><PraxisMark small /></span>Praxis</span><IconButton label="Collapse sidebar" onClick={toggleSidebar}><PanelLeft size={16} /></IconButton></div>
     <div className="sidebar-content">
       <button type="button" className="workspace-picker" onClick={() => void praxis.chooseWorkspace()} title={praxis.workspace || 'Choose working directory'} disabled={!praxis.api}><Folder size={16} /><span>{praxis.workspace ? baseName(praxis.workspace) : 'Choose working directory'}</span><ChevronDown size={13} /></button>
       <button type="button" className="new-chat" onClick={praxis.newChat}><Plus size={16} /><span>New chat</span><kbd>Ctrl N</kbd></button>
       <label className="session-search"><Search size={14} /><input aria-label="Search chats" placeholder="Search chats" value={query} onChange={event => setQuery(event.target.value)} />{query && <IconButton label="Clear search" onClick={() => setQuery('')}><X size={12} /></IconButton>}</label>
-      <div className="sidebar-section-label">Chats<span>{praxis.sessions.length || ''}</span></div>
+      <div className="sidebar-section-label">Recent chats</div>
       <div className="session-list">
-        {praxis.listing && sessions.length === 0 ? <div className="session-skeleton" aria-label="Loading chats"><i /><i /><i /></div> : sessions.length === 0 ? <div className="sidebar-empty">{query ? 'No matching chats' : 'Continue your work here.\nSend a message to start a chat.'}</div> : sessions.map(session => {
+        {praxis.listing && sessions.length === 0 ? <div className="session-skeleton" aria-label="Loading chats"><i /><i /><i /></div> : sessions.length === 0 ? <div className="sidebar-empty">{query ? 'No matching chats' : 'Your conversations will appear here.'}</div> : sessions.map(session => {
           const pendingApproval = praxis.conversations[session.id]?.approvals.length > 0
           return <button key={session.id} type="button" className={`session-item ${session.id === praxis.activeId ? 'selected' : ''}`} aria-current={session.id === praxis.activeId ? 'page' : undefined} onClick={() => void praxis.openSession(session.id)} title={session.title}>
-            {isBusy(session.status) ? <span className={`session-dot ${pendingApproval ? 'approval-dot' : ''}`} aria-label={pendingApproval ? 'Awaiting approval' : 'Running'} /> : <MessageSquare size={13} />}
             <span>{session.title || 'New chat'}</span>
+            {isBusy(session.status) && <span className={`session-dot ${pendingApproval ? 'approval-dot' : ''}`} aria-label={pendingApproval ? 'Awaiting approval' : 'Running'} />}
             {session.status === 'failed' && <CircleAlert size={12} className="error-text" />}
           </button>
         })}
       </div>
     </div>
-    <div className="sidebar-footer"><button type="button" onClick={openSettings}><Settings2 size={15} /><span>Settings</span><kbd>Ctrl ,</kbd></button><div className="connection-status" title={praxis.connection.message}><span className={`status-dot ${praxis.connection.state}`} />{praxis.connection.state === 'connected' ? 'Praxis connected' : praxis.connection.state === 'connecting' ? 'Connecting to Praxis' : 'Praxis disconnected'}<span className="version">{praxis.info ? `v${praxis.info.version}` : ''}</span></div></div>
+    <div className="sidebar-footer"><button type="button" onClick={openSettings}><Settings2 size={16} /><span>Settings</span><kbd>Ctrl ,</kbd></button></div>
   </aside>
 }
 
@@ -168,7 +180,7 @@ function SettingsDialog({ praxis, open, close }: { praxis: Praxis; open: boolean
   }
   return <dialog ref={ref} className="settings-dialog" onCancel={event => { if (saving) event.preventDefault(); else close() }} onClose={close} aria-labelledby="settings-title">
     <form onSubmit={event => void save(event)}>
-      <div className="dialog-header"><div><h2 id="settings-title">Settings</h2><p>Connect to local Praxis and configure your workspace.</p></div><IconButton label="Close settings" disabled={saving} onClick={close}><X size={18} /></IconButton></div>
+      <div className="dialog-header"><div><h2 id="settings-title">Settings <span className="version">{praxis.info ? `v${praxis.info.version}` : ''}</span></h2><p>Connect to local Praxis and configure your workspace.</p></div><IconButton label="Close settings" disabled={saving} onClick={close}><X size={18} /></IconButton></div>
       <div className="settings-fields">
         <div className="settings-section-title">Local runtime</div>
         <label className="field"><span>Praxis project directory</span><div className="path-field"><input required value={draft.praxisPath} onChange={event => setDraft({ ...draft, praxisPath: event.target.value })} placeholder="Choose your local Praxis project" /><button type="button" className="button" onClick={() => void choose('praxis')} disabled={saving || !praxis.api}>Browse</button></div></label>
@@ -198,7 +210,7 @@ export default function App() {
   const draft = drafts[draftKey] || ''
   const active = praxis.active
   const busy = isBusy(active?.summary?.status)
-  const runningCount = Object.values(praxis.conversations).filter(conversation => isBusy(conversation.summary?.status)).length
+  const toolActivityVisible = active?.messages.some(message => message.role === 'tool' && ['running', 'pending', 'approval'].includes(message.status || ''))
   const stopping = active?.summary?.status === 'stopping'
   const connected = praxis.connection.state === 'connected'
   const loading = praxis.loadingSession === praxis.activeId && Boolean(praxis.activeId)
@@ -256,17 +268,20 @@ export default function App() {
 
   const connectionProblem = !connected && praxis.connection.state !== 'connecting'
   const title = active?.summary?.title || 'New chat'
+  const empty = !active?.messages.length && !loading && !busy
   return <div className={`app ${sidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}>
     <Sidebar praxis={praxis} collapsed={sidebarCollapsed} toggleSidebar={() => setSidebarCollapsed(value => !value)} openSettings={() => setSettingsOpen(true)} />
     <main className="main">
       <header className="titlebar">
-        <div className="titlebar-leading">{sidebarCollapsed && <IconButton label="Expand sidebar" onClick={() => setSidebarCollapsed(false)}><PanelLeft size={15} /></IconButton>}<span className="titlebar-project">{praxis.workspace ? baseName(praxis.workspace) : 'Praxis'}</span><span className="titlebar-divider">/</span><span className="titlebar-title">{title}</span></div>
+        <div className="titlebar-leading">{sidebarCollapsed && <IconButton label="Expand sidebar" onClick={() => setSidebarCollapsed(false)}><PanelLeft size={16} /></IconButton>}<span className="titlebar-title" title={title}>{title}</span>{busy && <span className="toolbar-status">{stopping ? 'Stopping' : 'In progress'}</span>}</div>
+        <div className="titlebar-actions">{sidebarCollapsed && <IconButton label="New chat" onClick={praxis.newChat}><Plus size={17} /></IconButton>}
         <div className="window-controls"><IconButton label="Minimize" onClick={() => praxis.api?.windowAction('minimize')}><Minus size={15} /></IconButton><IconButton label="Maximize or restore" onClick={() => praxis.api?.windowAction('maximize')}><Maximize2 size={12} /></IconButton><IconButton label="Close window" className="window-close" onClick={() => praxis.api?.windowAction('close')}><X size={16} /></IconButton></div>
+        </div>
       </header>
-      <div className="conversation-toolbar"><div><MessageSquare size={14} /><span>{title}</span>{busy && <span className="toolbar-status">{stopping ? 'Stopping' : 'In progress'}</span>}</div><div><span className="workspace-caption" title={active?.summary?.workspace || praxis.workspace}>{baseName(active?.summary?.workspace || praxis.workspace)}</span><IconButton label="New chat" onClick={praxis.newChat}><Plus size={16} /></IconButton></div></div>
 
       {(connectionProblem || praxis.configured === false) && <div className="connection-banner" role="status"><CircleAlert size={16} /><span>{connectionProblem ? praxis.connection.message || 'Unable to connect to local Praxis. Check your runtime settings.' : 'No model API key configured. Add one in Settings or the Praxis environment.'}</span><button type="button" onClick={() => setSettingsOpen(true)}>Open settings</button>{connectionProblem && praxis.api && <button type="button" onClick={() => { void praxis.api.restart().catch(error => praxis.setError(errorMessage(error))) }}>Reconnect</button>}</div>}
 
+      <div className={`conversation-body ${empty ? 'is-new' : ''}`}>
       <div className="transcript" ref={scrollRef} onScroll={() => {
         const container = scrollRef.current
         if (!container) return
@@ -274,12 +289,12 @@ export default function App() {
         stickToBottom.current = nearBottom
         setShowScroll(!nearBottom)
       }}>
-        <div className={`transcript-content ${!active?.messages.length && !loading ? 'is-empty' : ''}`}>
-          {loading ? <div className="transcript-skeleton" aria-label="Loading chat history"><i /><i /><i /><i /></div> : !active?.messages.length ? <div className="empty-state"><PraxisMark /><h1>Start your work here</h1><p>Describe your task. Praxis will work in the selected directory.</p><button type="button" className="empty-workspace" onClick={() => void praxis.chooseWorkspace()} disabled={!praxis.api}><FolderOpen size={15} /><span>{praxis.workspace ? baseName(praxis.workspace) : 'Choose working directory'}</span><ChevronDown size={13} /></button></div> : active.messages.map(message => <Message key={message.id} message={message} />)}
+        <div className="transcript-content">
+          {loading ? <div className="transcript-skeleton" aria-label="Loading chat history"><i /><i /><i /><i /></div> : empty ? <div className="empty-state"><h1><img className="welcome-wordmark" src={praxisWordmark} alt="Praxis" width={340} height={97} /></h1></div> : active && <Transcript messages={active.messages} />}
           {active && active.plan.length > 0 && <Plan plan={active.plan} busy={busy} />}
           {active?.approvals.map(approval => <ApprovalPrompt key={approval.approval_id} approval={approval} onRespond={praxis.approve} />)}
           {active && active.pausedInputs.length > 0 && <section className="paused-inputs"><div className="detail-label">These follow-up messages were not received. Copy them to send again.</div>{active.pausedInputs.map((text, index) => <div key={index}><span>{text}</span><CopyButton text={text} label="Copy unsent message" /></div>)}</section>}
-          {busy && <div className="activity" role="status"><LoaderCircle size={13} className="spin" /><span>{active?.activity || 'Running'}</span></div>}
+          {busy && !toolActivityVisible && <div className="activity" role="status"><LoaderCircle size={13} className="spin" /><span>{active?.activity || 'Running'}</span></div>}
         </div>
       </div>
 
@@ -290,11 +305,10 @@ export default function App() {
           <textarea ref={textareaRef} aria-label={busy ? 'Follow-up message' : 'Send message'} value={draft} onChange={event => setDraft(event.target.value)} rows={2} disabled={loading} placeholder={stopping ? 'Stopping task…' : busy ? 'Add details or adjust the task…' : 'What would you like to work on?'} onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); void submit() }
           }} />
-          <div className="composer-toolbar"><div className="composer-context"><span className="agent-label"><FileCode2 size={13} />Agent</span><span className="model-name" title={active?.summary?.model || praxis.info?.settings.model || 'Praxis environment settings'}>{active?.summary?.model || praxis.info?.settings.model || 'Default model'}</span></div><div className="composer-actions">{busy && <button type="button" className="stop-button" onClick={() => void praxis.stop()} disabled={stopping} title="Stop current task"><Square size={10} fill="currentColor" />{stopping ? 'Stopping' : 'Stop'}</button>}<button className="send-button" type="submit" aria-label={busy ? 'Send follow-up' : 'Send message'} title={busy ? 'Send follow-up' : 'Send message (Enter)'} disabled={!draft.trim() || !ready || praxis.sending || stopping}>{praxis.sending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={17} />}</button></div></div>
+          <div className="composer-toolbar"><div className="composer-context"><button type="button" className="composer-workspace" title={active?.summary?.workspace || praxis.workspace || 'Choose workspace for a new chat'} aria-label="Choose working directory" onClick={() => void praxis.chooseWorkspace()} disabled={!praxis.api}><Folder size={14} /><span>{baseName(active?.summary?.workspace || praxis.workspace) || 'Workspace'}</span><ChevronDown size={12} /></button><span className="model-name" title={active?.summary?.model || praxis.info?.settings.model || 'Praxis environment settings'}>{active?.summary?.model || praxis.info?.settings.model || 'Default model'}</span></div><div className="composer-actions">{busy && <button type="button" className="stop-button" onClick={() => void praxis.stop()} disabled={stopping} title="Stop current task"><Square size={10} fill="currentColor" />{stopping ? 'Stopping' : 'Stop'}</button>}<button className="send-button" type="submit" aria-label={busy ? 'Send follow-up' : 'Send message'} title={busy ? 'Send follow-up' : 'Send message (Enter)'} disabled={!draft.trim() || !ready || praxis.sending || stopping}>{praxis.sending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</button></div></div>
         </form>
-        <div className="composer-help"><span>{busy ? 'Follow-ups join the task when the agent next checks for messages' : 'Enter to send · Shift + Enter for a new line'}</span><span>{praxis.connection.state === 'connecting' ? 'Connecting…' : 'Local workspace'}</span></div>
       </div>
-      <footer className="statusbar"><span><Folder size={11} />{praxis.workspace ? baseName(praxis.workspace) : 'No directory selected'}</span><span>{runningCount ? `${runningCount} ${runningCount === 1 ? 'task' : 'tasks'} running` : 'Ready'}</span></footer>
+      </div>
     </main>
     <SettingsDialog praxis={praxis} open={settingsOpen} close={() => setSettingsOpen(false)} />
   </div>
