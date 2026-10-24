@@ -36,6 +36,38 @@ const toolKey = (event: PraxisEvent) => `tool:${event.turn_id}:${agentKey(event)
 const assistantKey = (event: PraxisEvent) => `assistant:${event.turn_id}:${agentKey(event)}:${executionKey(event)}:${event.data.request_number ?? 'final'}`
 const unfinishedToolStatuses = new Set(['running', 'pending', 'approval'])
 const isUnfinishedTool = (message: DisplayMessage) => message.role === 'tool' && (unfinishedToolStatuses.has(message.status || '') || message.status === 'denied' && message.tool_finished === false)
+const isCommand = (message: DisplayMessage) => message.tool_name === 'run_command' || message.tool_name === 'wait_command'
+const isBackgroundCommand = (message: DisplayMessage) => isCommand(message) && message.tool_finished === true && message.status === 'running'
+
+export function toolStatus(message: DisplayMessage): string | undefined {
+  const result = message.structured_output
+  if (message.status === 'cancelled' || result?.status === 'cancelled') return 'cancelled'
+  if (message.status === 'denied') return 'denied'
+  if (message.error || message.status === 'failed' || result?.status === 'failed' || result?.status === 'spawn_failed'
+    || isCommand(message) && typeof result?.exit_code === 'number' && result.exit_code !== 0) return 'failed'
+  if (result?.status === 'running') return 'running'
+  return message.status
+}
+
+// A later wait_command result can finish a previously yielded command. Keep its
+// original output, but update its status so the earlier row cannot spin forever.
+function reconcileCommands(messages: DisplayMessage[]): DisplayMessage[] {
+  const latest = new Map<string, DisplayMessage>()
+  const next = messages.slice()
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    const message = next[index]
+    const id = message.structured_output?.session_id
+    if (message.role !== 'tool' || !isCommand(message) || typeof id !== 'string') continue
+    const key = `${isChildAgent(message.agent_id) ? message.agent_id : 'main'}:${id}`
+    const result = latest.get(key)
+    if (result && isBackgroundCommand(message)) {
+      next[index] = { ...message, status: toolStatus(result), error: result.error,
+        structured_output: { ...message.structured_output, status: result.structured_output?.status, exit_code: result.structured_output?.exit_code } }
+    }
+    if (!result) latest.set(key, message)
+  }
+  return next
+}
 
 function finalizeMessages(messages: DisplayMessage[], event: PraxisEvent, includeChildren: boolean, interruptTools: boolean): DisplayMessage[] {
   return messages.map(message => {
@@ -43,7 +75,7 @@ function finalizeMessages(messages: DisplayMessage[], event: PraxisEvent, includ
     const messageAgent = isChildAgent(message.agent_id) ? message.agent_id : 'main'
     if ((!includeChildren || isChildAgent(event.agent_id)) && messageAgent !== agentKey(event)) return message
     if (isChildAgent(event.agent_id) && event.data.child_turn_id && message.child_turn_id && message.child_turn_id !== event.data.child_turn_id) return message
-    if (interruptTools && isUnfinishedTool(message)) return { ...message, status: 'cancelled', error: false }
+    if (interruptTools && isUnfinishedTool(message) && !isBackgroundCommand(message)) return { ...message, status: 'cancelled', error: false }
     if (message.role === 'assistant' && message.status === 'streaming') return { ...message, status: 'complete' }
     return message
   })
@@ -129,13 +161,17 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
       break
     case 'ToolFinished': {
       const result = objectOf(data.result)
-      const cancelled = objectOf(result.structured_output).status === 'cancelled' || textOf(result.output).startsWith('ExecutionStopped:')
-      next.messages = updateMessage(current.messages, toolBase.id, message => ({
-        ...toolBase, ...message, content: textOf(result.content ?? result.output ?? data.result),
-        status: cancelled ? 'cancelled' : message?.status === 'denied' ? 'denied' : result.success === false || result.is_error || result.error ? 'failed' : 'complete',
-        error: cancelled || message?.status === 'denied' ? false : Boolean(result.success === false || result.is_error || result.error),
-        tool_finished: true,
-        file_change: result.file_change as DisplayMessage['file_change']
+      const structured = objectOf(result.structured_output ?? result.output)
+      next.messages = reconcileCommands(updateMessage(current.messages, toolBase.id, message => {
+        const finished: DisplayMessage = {
+          ...toolBase, ...message, content: textOf(result.content ?? result.output ?? data.result),
+          status: textOf(result.output).startsWith('ExecutionStopped:') ? 'cancelled' : message?.status === 'denied' ? 'denied' : 'complete',
+          error: Boolean(result.success === false || result.is_error || result.error),
+          tool_finished: true, structured_output: structured,
+          file_change: result.file_change as DisplayMessage['file_change']
+        }
+        const status = toolStatus(finished)
+        return { ...finished, status, error: status === 'failed' }
       }))
       break
     }
@@ -186,7 +222,7 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
       next.messages = finalizeMessages(current.messages, event, true, true)
       if (!child) {
         if (next.summary) next.summary = { ...next.summary, status: 'stopping' }
-        next.messages = [...next.messages, { id: `cancelled:${event.turn_id}`, role: 'system', content: 'Task stopped' }]
+        next.messages = [...next.messages, { id: `cancelled:${event.turn_id}`, role: 'system', content: '已停止', status: 'cancelled' }]
         next.activity = 'Finishing task'
         next.approvals = []
       }
@@ -208,8 +244,10 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
 }
 
 export function applySnapshot(snapshot: SessionSnapshot, buffered: PraxisEvent[] = []): Conversation {
-  const messages = isBusy(snapshot.session.status) ? snapshot.messages : snapshot.messages.map(message => {
-    if (isUnfinishedTool(message)) return { ...message, status: 'cancelled', error: false }
+  const messages = reconcileCommands(snapshot.messages).map(message => {
+    if (message.role === 'tool') message = { ...message, status: toolStatus(message) }
+    if (isBusy(snapshot.session.status)) return message
+    if (isUnfinishedTool(message) && !isBackgroundCommand(message)) return { ...message, status: 'cancelled', error: false }
     if (message.role === 'assistant' && message.status === 'streaming') return { ...message, status: 'complete' }
     return message
   })

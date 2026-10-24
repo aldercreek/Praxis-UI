@@ -203,7 +203,7 @@ export function usePraxis() {
     workspaceRef.current = nextInfo.settings.workspace
     setWorkspace(nextInfo.settings.workspace)
     // Restarted backends recover persisted history; loaded snapshots must be requested again.
-    const engineChanged = ['praxisPath', 'pythonPath', 'model', 'baseUrl', 'apiKey'].some(key => key in settings)
+    const engineChanged = ['praxisPath', 'pythonPath', 'model', 'baseUrl', 'apiKey', 'bypassApprovals'].some(key => key in settings)
     if (engineChanged) {
       setConversations(previous => Object.fromEntries(Object.entries(previous).map(([id, conversation]) => [id, { ...conversation, loaded: false }])))
       setActiveId(null)

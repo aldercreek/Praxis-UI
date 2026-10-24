@@ -1,12 +1,12 @@
-import { memo, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronDown, ChevronRight, Circle, CircleAlert, Copy, Folder, GitBranch, LoaderCircle, Maximize2, Minus, PanelLeft, Plus, Search, Settings2, ShieldCheck, Square, X } from 'lucide-react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronDown, ChevronRight, Circle, CircleAlert, Copy, FileText, Folder, GitBranch, Images, ListChecks, LoaderCircle, Maximize2, Minus, PanelLeft, Pencil, Plus, Search, Settings2, ShieldCheck, Square, SquareTerminal, X } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import praxisMark from '../../../resources/brand/praxis-mark.svg'
 import praxisWordmark from '../../../resources/brand/praxis-wordmark.svg'
 import type { Approval, DesktopSettings } from '../../shared/protocol'
 import { isBusy, isChildAgent, type DisplayMessage, type PlanStep } from './state'
-import { groupTranscript, presentTool } from './toolPresentation'
+import { groupTranscript, presentTool, type ToolKind } from './toolPresentation'
 import { baseName, errorMessage, usePraxis } from './usePraxis'
 
 type Praxis = ReturnType<typeof usePraxis>
@@ -48,26 +48,41 @@ function CodeBlock({ children }: { children: ReactNode }) {
   }}>{copied ? <Check size={13} /> : <Copy size={13} />}</button></div>
 }
 
+function ToolIcon({ kind, running = false, failed = false }: { kind: ToolKind; running?: boolean; failed?: boolean }) {
+  const Icon = failed ? CircleAlert : running ? LoaderCircle : { read: FileText, search: Search, edit: Pencil, command: SquareTerminal, image: Images, tool: ListChecks }[kind]
+  return <Icon size={14} className={`tool-icon${running ? ' spin' : ''}`} aria-hidden="true" />
+}
+
 function ToolMessage({ message }: { message: DisplayMessage }) {
   const tool = presentTool(message)
   const argument = message.arguments || {}
-  return <details className={`tool-message ${tool.status === 'Failed' ? 'tool-error' : ''}`}>
-    <summary aria-label={`${tool.label}${tool.target ? ` ${tool.target}` : ''} · ${tool.status}`}>
-      <span className="tool-name" title={tool.name}>{tool.label}</span>
-      {tool.target && <span className="tool-target" title={tool.fullTarget}>{tool.target}</span>}
-      {tool.context && <span className="tool-context" title={tool.context}>{tool.context}</span>}
-      {tool.status !== 'Complete' && <span className={`tool-status ${tool.status === 'Awaiting approval' ? 'tool-approval' : ''}`}>{tool.running ? <><LoaderCircle className="spin" size={12} aria-hidden="true" /><span className="visually-hidden">Running</span></> : tool.status}</span>}
+  const isCommand = tool.kind === 'command'
+  const detailTitle = { command: 'Shell', read: '文件内容', search: '搜索结果', edit: '文件更改', image: '图片', tool: tool.name }[tool.kind]
+  const resultText = message.content !== message.output ? message.content : ''
+  const hasDiff = Boolean(message.file_change?.diff)
+  const deferResult = hasDiff && tool.status === 'Complete'
+  const detailText = [tool.command, message.output, resultText, message.file_change?.diff].filter(Boolean).join('\n\n')
+  return <details className={`tool-message ${tool.status === 'Failed' ? 'tool-error' : tool.status === 'Awaiting approval' ? 'tool-approval' : ''}`}>
+    <summary>
+      <ToolIcon kind={tool.kind} running={tool.running} failed={tool.status === 'Failed'} />
+      <span className="tool-summary" title={tool.fullTarget || tool.summary}>{tool.summary}</span>
       <ChevronRight className="disclosure-icon" size={12} aria-hidden="true" />
     </summary>
     <div className="tool-details">
-      <div className="tool-detail-heading"><span title={tool.name}>{tool.name}</span><span>{tool.status}</span></div>
-      {isChildAgent(message.agent_id) && <p className="tool-agent">Subtask · {message.agent_id}</p>}
-      {tool.command && <><div className="detail-label">Command <CopyButton text={tool.command} label="Copy command" /></div><pre>{tool.command}</pre></>}
-      {message.output && <><div className="detail-label">Live output</div><pre className="terminal-output">{message.output}</pre></>}
-      {message.content && message.content !== message.output && <><div className="detail-label">Result <CopyButton text={message.content} /></div><pre className={['Failed', 'Denied', 'Stopped'].includes(tool.status) ? 'tool-result-prose' : undefined}>{message.content}</pre></>}
-      {message.file_change?.diff && <><div className="detail-label">{message.file_change.path}<span>+{message.file_change.added} / −{message.file_change.removed}</span></div><pre className="file-diff">{message.file_change.diff.split('\n').map((line, index) => <span key={index} className={line.startsWith('+') ? 'diff-add' : line.startsWith('-') ? 'diff-remove' : ''}>{line}{'\n'}</span>)}</pre></>}
-      {!message.content && !message.output && <div className="tool-waiting">{message.status === 'approval' ? 'Execution will continue after approval.' : message.status === 'denied' ? 'This tool call was denied.' : message.status === 'cancelled' ? 'Tool execution stopped.' : tool.running || message.status === 'pending' ? 'Waiting for tool results…' : 'No output.'}</div>}
-      {Object.keys(argument).length > 0 && <details className="tool-arguments"><summary><ChevronRight className="disclosure-icon" size={12} aria-hidden="true" />Parameters</summary><pre>{JSON.stringify(argument, null, 2)}</pre></details>}
+      <div className="tool-detail-heading"><span title={tool.name}>{detailTitle}</span><span className="tool-detail-meta">{tool.status !== 'Complete' && <span>{tool.statusLabel}</span>}{detailText && <CopyButton text={detailText} label="Copy tool details" />}</span></div>
+      {isChildAgent(message.agent_id) && <p className="tool-agent">子任务 · {message.agent_id}</p>}
+      {!deferResult && (tool.command || message.output || resultText) && <div className={isCommand ? 'tool-log' : 'tool-content'} tabIndex={isCommand ? 0 : undefined} role={isCommand ? 'region' : undefined} aria-label={isCommand ? 'Shell output' : undefined}>
+        {tool.command && <pre className="command-line"><span className="command-prompt" aria-hidden="true">$ </span>{tool.command}</pre>}
+        {message.output && <pre className="terminal-output">{message.output}</pre>}
+        {resultText && <pre className={tool.kind === 'edit' || (!isCommand && ['Failed', 'Denied', 'Stopped'].includes(tool.status)) ? 'tool-result-prose' : undefined}>{resultText}</pre>}
+      </div>}
+      {message.file_change?.diff && <div className="tool-file-change"><div className="detail-label"><span title={message.file_change.path}>{message.file_change.path}</span><span>+{message.file_change.added} / −{message.file_change.removed}</span></div><pre className="file-diff">{message.file_change.diff.split('\n').map((line, index) => <span key={index} className={line.startsWith('+') ? 'diff-add' : line.startsWith('-') ? 'diff-remove' : ''}>{line || '\u00a0'}</span>)}</pre></div>}
+      {!hasDiff && !message.content && !message.output && <div className="tool-waiting">{message.status === 'approval' ? '确认后继续执行。' : message.status === 'denied' ? '已拒绝这次操作。' : message.status === 'cancelled' ? '操作已停止。' : tool.running || message.status === 'pending' ? '等待输出…' : '没有输出。'}</div>}
+      {(Object.keys(argument).length > 0 || (deferResult && (message.output || resultText))) && <details className="tool-arguments"><summary><ChevronRight className="disclosure-icon" size={12} aria-hidden="true" />{deferResult ? '执行详情' : '参数'}</summary>
+        {deferResult && message.output && <pre>{message.output}</pre>}
+        {deferResult && resultText && <pre className="tool-result-prose">{resultText}</pre>}
+        {Object.keys(argument).length > 0 && <>{deferResult && <div className="detail-label">参数</div>}<pre>{JSON.stringify(argument, null, 2)}</pre></>}
+      </details>}
     </div>
   </details>
 }
@@ -75,7 +90,7 @@ function ToolMessage({ message }: { message: DisplayMessage }) {
 const Transcript = memo(function Transcript({ messages }: { messages: DisplayMessage[] }) {
   return groupTranscript(messages).map(item => item.role === 'tool-group'
     ? <details className="tool-group" key={item.id}>
-      <summary><span className="tool-group-label">Explored workspace</span><span className="tool-context">{item.messages.length} steps</span><ChevronRight className="disclosure-icon" size={12} aria-hidden="true" /></summary>
+      <summary><ToolIcon kind={item.kind} /><span className="tool-summary" title={item.summary}>{item.summary}</span><ChevronRight className="disclosure-icon" size={12} aria-hidden="true" /></summary>
       <div className="tool-group-items">{item.messages.map(message => <ToolMessage key={message.id} message={message} />)}</div>
     </details>
     : <Message key={item.id} message={item} />)
@@ -83,6 +98,7 @@ const Transcript = memo(function Transcript({ messages }: { messages: DisplayMes
 
 const Message = memo(function Message({ message }: { message: DisplayMessage }) {
   if (message.role === 'tool') return <ToolMessage message={message} />
+  if (message.role === 'system' && message.status === 'cancelled' && !message.agent_id) return <div className="turn-notice" role="status">{message.content}</div>
   if (message.role === 'system') return <div className={`system-message ${message.error ? 'error-text' : ''}`}>
     {message.error ? <CircleAlert size={14} /> : message.agent_id ? <GitBranch size={14} /> : <Square size={11} />}
     <span>{message.content}{message.agent_id && <span className="muted"> · {message.status || message.agent_id}</span>}</span>
@@ -149,13 +165,13 @@ function Sidebar({ praxis, openSettings, collapsed, toggleSidebar }: { praxis: P
 
 function SettingsDialog({ praxis, open, close }: { praxis: Praxis; open: boolean; close: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
-  const [draft, setDraft] = useState({ praxisPath: '', pythonPath: '', workspace: '', model: '', baseUrl: '', apiKey: '' })
+  const [draft, setDraft] = useState({ praxisPath: '', pythonPath: '', workspace: '', model: '', baseUrl: '', apiKey: '', bypassApprovals: true })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => {
     if (open) {
       const settings = praxis.info?.settings
-      if (settings) setDraft({ praxisPath: settings.praxisPath, pythonPath: settings.pythonPath, workspace: settings.workspace, model: settings.model, baseUrl: settings.baseUrl, apiKey: '' })
+      if (settings) setDraft({ praxisPath: settings.praxisPath, pythonPath: settings.pythonPath, workspace: settings.workspace, model: settings.model, baseUrl: settings.baseUrl, apiKey: '', bypassApprovals: settings.bypassApprovals })
       setError('')
       ref.current?.showModal()
     } else ref.current?.close()
@@ -176,6 +192,7 @@ function SettingsDialog({ praxis, open, close }: { praxis: Praxis; open: boolean
       if (draft[key].trim() !== praxis.info?.settings[key]) changed[key] = draft[key].trim()
     }
     if (draft.apiKey.trim()) changed.apiKey = draft.apiKey.trim()
+    if (draft.bypassApprovals !== praxis.info?.settings.bypassApprovals) changed.bypassApprovals = draft.bypassApprovals
     try { await praxis.saveSettings(changed); close() } catch (error) { setError(errorMessage(error)) } finally { setSaving(false) }
   }
   return <dialog ref={ref} className="settings-dialog" onCancel={event => { if (saving) event.preventDefault(); else close() }} onClose={close} aria-labelledby="settings-title">
@@ -186,6 +203,7 @@ function SettingsDialog({ praxis, open, close }: { praxis: Praxis; open: boolean
         <label className="field"><span>Praxis project directory</span><div className="path-field"><input required value={draft.praxisPath} onChange={event => setDraft({ ...draft, praxisPath: event.target.value })} placeholder="Choose your local Praxis project" /><button type="button" className="button" onClick={() => void choose('praxis')} disabled={saving || !praxis.api}>Browse</button></div></label>
         <label className="field"><span>Python interpreter</span><div className="path-field"><input value={draft.pythonPath} onChange={event => setDraft({ ...draft, pythonPath: event.target.value })} placeholder="Use Python from Praxis/.venv automatically" /><button type="button" className="button" onClick={() => void choose('python')} disabled={saving || !praxis.api}>Browse</button></div><small>Use a Python environment with Praxis dependencies installed.</small></label>
         <label className="field"><span>Default working directory</span><div className="path-field"><input value={draft.workspace} onChange={event => setDraft({ ...draft, workspace: event.target.value })} placeholder="Project directory for new chats" /><button type="button" className="button" onClick={() => void choose('workspace')} disabled={saving || !praxis.api}>Browse</button></div></label>
+        <label className="setting-toggle"><span><span>Bypass approvals</span><small>Run tools without approval prompts in desktop chats.</small></span><input type="checkbox" aria-label="Bypass approvals" checked={draft.bypassApprovals} onChange={event => setDraft({ ...draft, bypassApprovals: event.target.checked })} /></label>
         <div className="settings-section-title model-section">Model connection</div>
         <label className="field"><span>Model</span><input value={draft.model} onChange={event => setDraft({ ...draft, model: event.target.value })} placeholder="Use Praxis environment settings" /></label>
         <label className="field"><span>API URL</span><input value={draft.baseUrl} onChange={event => setDraft({ ...draft, baseUrl: event.target.value })} placeholder="Use Praxis environment settings" type="url" /></label>
@@ -216,6 +234,13 @@ export default function App() {
   const loading = praxis.loadingSession === praxis.activeId && Boolean(praxis.activeId)
   const ready = connected && !loading && praxis.configured !== false
   const setDraft = (text: string) => setDrafts(previous => ({ ...previous, [draftKey]: text }))
+  const syncScrollState = useCallback(() => {
+    const container = scrollRef.current
+    if (!container) return
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 64
+    stickToBottom.current = nearBottom
+    setShowScroll(!nearBottom)
+  }, [])
 
   useEffect(() => {
     const compact = window.matchMedia('(max-width: 899px)')
@@ -240,20 +265,29 @@ export default function App() {
     if (textarea) { textarea.style.height = 'auto'; textarea.style.height = `${Math.min(textarea.scrollHeight, 176)}px` }
   }, [draft])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     stickToBottom.current = true
     setShowScroll(false)
-    requestAnimationFrame(() => {
-      const container = scrollRef.current
-      if (container) container.scrollTop = container.scrollHeight
-    })
+    const container = scrollRef.current
+    if (container) container.scrollTop = container.scrollHeight
   }, [praxis.activeId])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!stickToBottom.current) return
     const container = scrollRef.current
     if (container) container.scrollTop = container.scrollHeight
   }, [active?.messages, active?.approvals, active?.plan, loading])
+
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+    // Disclosure and window resizing can change the distance to the bottom
+    // without a scroll event. Keep the affordance in sync with the actual view.
+    const observer = new ResizeObserver(syncScrollState)
+    observer.observe(container)
+    if (container.firstElementChild) observer.observe(container.firstElementChild)
+    return () => observer.disconnect()
+  }, [syncScrollState])
 
   const submit = async () => {
     if (!draft.trim() || !ready || praxis.sending || stopping) return
@@ -282,13 +316,7 @@ export default function App() {
       {(connectionProblem || praxis.configured === false) && <div className="connection-banner" role="status"><CircleAlert size={16} /><span>{connectionProblem ? praxis.connection.message || 'Unable to connect to local Praxis. Check your runtime settings.' : 'No model API key configured. Add one in Settings or the Praxis environment.'}</span><button type="button" onClick={() => setSettingsOpen(true)}>Open settings</button>{connectionProblem && praxis.api && <button type="button" onClick={() => { void praxis.api.restart().catch(error => praxis.setError(errorMessage(error))) }}>Reconnect</button>}</div>}
 
       <div className={`conversation-body ${empty ? 'is-new' : ''}`}>
-      <div className="transcript" ref={scrollRef} onScroll={() => {
-        const container = scrollRef.current
-        if (!container) return
-        const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 96
-        stickToBottom.current = nearBottom
-        setShowScroll(!nearBottom)
-      }}>
+      <div className="transcript" ref={scrollRef} onScroll={syncScrollState}>
         <div className="transcript-content">
           {loading ? <div className="transcript-skeleton" aria-label="Loading chat history"><i /><i /><i /><i /></div> : empty ? <div className="empty-state"><h1><img className="welcome-wordmark" src={praxisWordmark} alt="Praxis" width={340} height={97} /></h1></div> : active && <Transcript messages={active.messages} />}
           {active && active.plan.length > 0 && <Plan plan={active.plan} busy={busy} />}
@@ -299,13 +327,20 @@ export default function App() {
       </div>
 
       <div className="composer-region">
-        {showScroll && <button type="button" className="scroll-bottom" onClick={() => { const container = scrollRef.current; if (container) container.scrollTop = container.scrollHeight; stickToBottom.current = true; setShowScroll(false) }}><ArrowDown size={14} />Jump to latest message</button>}
+        {showScroll && <button type="button" className="scroll-bottom" aria-label="回到最新消息" title="回到最新消息" onClick={() => { const container = scrollRef.current; if (container) container.scrollTop = container.scrollHeight; stickToBottom.current = true; setShowScroll(false) }}><ArrowDown size={16} aria-hidden="true" /></button>}
         {praxis.error && <div className="composer-error" role="alert"><CircleAlert size={14} /><span>{praxis.error}</span><IconButton label="Dismiss error" onClick={() => praxis.setError('')}><X size={13} /></IconButton></div>}
         <form className={`composer ${busy ? 'composer-running' : ''}`} onSubmit={event => { event.preventDefault(); void submit() }}>
           <textarea ref={textareaRef} aria-label={busy ? 'Follow-up message' : 'Send message'} value={draft} onChange={event => setDraft(event.target.value)} rows={2} disabled={loading} placeholder={stopping ? 'Stopping task…' : busy ? 'Add details or adjust the task…' : 'What would you like to work on?'} onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); void submit() }
           }} />
-          <div className="composer-toolbar"><div className="composer-context"><button type="button" className="composer-workspace" title={active?.summary?.workspace || praxis.workspace || 'Choose workspace for a new chat'} aria-label="Choose working directory" onClick={() => void praxis.chooseWorkspace()} disabled={!praxis.api}><Folder size={14} /><span>{baseName(active?.summary?.workspace || praxis.workspace) || 'Workspace'}</span><ChevronDown size={12} /></button><span className="model-name" title={active?.summary?.model || praxis.info?.settings.model || 'Praxis environment settings'}>{active?.summary?.model || praxis.info?.settings.model || 'Default model'}</span></div><div className="composer-actions">{busy && <button type="button" className="stop-button" onClick={() => void praxis.stop()} disabled={stopping} title="Stop current task"><Square size={10} fill="currentColor" />{stopping ? 'Stopping' : 'Stop'}</button>}<button className="send-button" type="submit" aria-label={busy ? 'Send follow-up' : 'Send message'} title={busy ? 'Send follow-up' : 'Send message (Enter)'} disabled={!draft.trim() || !ready || praxis.sending || stopping}>{praxis.sending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</button></div></div>
+          <div className="composer-toolbar">
+            <div className="composer-context">
+              <button type="button" className="composer-workspace" title={active?.summary?.workspace || praxis.workspace || 'Choose workspace for a new chat'} aria-label="Choose working directory" onClick={() => void praxis.chooseWorkspace()} disabled={!praxis.api}><Folder size={14} /><span>{baseName(active?.summary?.workspace || praxis.workspace) || 'Workspace'}</span><ChevronDown size={12} /></button>
+              <span className="model-name" title={active?.summary?.model || praxis.info?.settings.model || 'Praxis environment settings'}>{active?.summary?.model || praxis.info?.settings.model || 'Default model'}</span>
+              {praxis.info?.settings.bypassApprovals && <span className="approval-mode" title="Tools run without approval prompts">Bypass</span>}
+            </div>
+            <div className="composer-actions">{busy && <button type="button" className="stop-button" onClick={() => void praxis.stop()} disabled={stopping} title="Stop current task"><Square size={10} fill="currentColor" />{stopping ? 'Stopping' : 'Stop'}</button>}<button className="send-button" type="submit" aria-label={busy ? 'Send follow-up' : 'Send message'} title={busy ? 'Send follow-up' : 'Send message (Enter)'} disabled={!draft.trim() || !ready || praxis.sending || stopping}>{praxis.sending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</button></div>
+          </div>
         </form>
       </div>
       </div>

@@ -52,6 +52,36 @@ describe('conversation event reconciliation', () => {
     expect(next.activity).toBe('working')
   })
 
+  it('keeps a yielded command running through settlement and snapshot reload', () => {
+    let current = applyEvent({ ...emptyConversation(), summary: session }, event('ToolFinished', 1, {
+      call_id: 'command', tool_name: 'run_command', result: { success: true, output: 'server started', structured_output: { session_id: 'cmd-1', status: 'running' } }
+    }))
+    expect(current.messages[0]).toMatchObject({ status: 'running', tool_finished: true, structured_output: { session_id: 'cmd-1' } })
+    current = applyEvent(current, event('TurnSettled', 2, { status: 'idle' }))
+    expect(current.messages[0].status).toBe('running')
+    expect(applySnapshot({ session: current.summary!, messages: current.messages, approvals: [], sequence: 2 }).messages[0].status).toBe('running')
+  })
+
+  it('uses a later wait result to finish only the matching command and preserves its original output', () => {
+    let current = emptyConversation()
+    for (const [index, agent] of ['main', 'worker'].entries()) {
+      current = applyEvent(current, event('ToolFinished', index + 1, {
+        call_id: 'command', tool_name: 'run_command', result: { success: true, output: 'starting', structured_output: { session_id: 'cmd-1', status: 'running' } }
+      }, agent))
+    }
+    current = applyEvent(current, event('ToolFinished', 3, {
+      call_id: 'wait', tool_name: 'wait_command', result: { success: true, output: 'test failed', structured_output: { session_id: 'cmd-1', status: 'exited', exit_code: 1 } }
+    }))
+    expect(current.messages.map(message => message.status)).toEqual(['failed', 'running', 'failed'])
+    expect(current.messages[0].content).toBe('starting')
+    expect(current.messages[0].structured_output?.exit_code).toBe(1)
+  })
+
+  it('restores command failure from structured exit status even when the tool call succeeded', () => {
+    const messages = [{ id: 'command', role: 'tool' as const, tool_name: 'run_command', status: 'completed', content: 'exit 1', structured_output: { status: 'exited', exit_code: 1 } }]
+    expect(applySnapshot({ session: { ...session, status: 'idle' }, messages, approvals: [], sequence: 1 }).messages[0].status).toBe('failed')
+  })
+
   it('retains unconsumed supplement input after cancellation and removes pending approvals', () => {
     let current: Conversation = { ...emptyConversation(), summary: session, approvals: [{ approval_id: 'approval-1', tool_name: 'shell', arguments: {} }] }
     current = applyEvent(current, event('TurnCancelled', 1))

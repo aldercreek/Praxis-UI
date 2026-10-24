@@ -2,10 +2,12 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { existsSync, statSync } from 'node:fs'
 import { delimiter, join, resolve } from 'node:path'
 import { BackendClient } from './backend-client'
+import { createDiagnosticWriter } from './diagnostics'
 import { SettingsStore } from './settings'
 import type { DesktopInfo, DesktopSettings } from '../shared/protocol'
 
 const backend = new BackendClient()
+const writeDiagnostic = createDiagnosticWriter(process.stderr)
 let window: BrowserWindow | undefined
 let settings: SettingsStore
 let quitting = false
@@ -56,9 +58,10 @@ async function startBackend(): Promise<void> {
   connecting = (async () => {
     try {
       const config = settings.get()
+      const approvalArgs = config.bypassApprovals ? ['--bypass'] : []
       const testServer = !app.isPackaged && process.env.PRAXIS_UI_TEST_MODE === '1' && process.env.PRAXIS_UI_TEST_SERVER
       if (testServer) {
-        await backend.start({ command: process.execPath, args: [testServer], cwd: app.getAppPath(), env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+        await backend.start({ command: process.execPath, args: [testServer, ...approvalArgs], cwd: app.getAppPath(), env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
         return
       }
       validateEngine(config)
@@ -72,7 +75,7 @@ async function startBackend(): Promise<void> {
       }
       delete environment.ELECTRON_RUN_AS_NODE
       if (config.baseUrl) environment.ADA_BASE_URL = config.baseUrl
-      const args = ['-u', '-m', 'praxis_agent.desktop', '--stdio']
+      const args = ['-u', '-m', 'praxis_agent.desktop', '--stdio', ...approvalArgs]
       if (process.env.PRAXIS_UI_DATABASE) args.push('--database', process.env.PRAXIS_UI_DATABASE)
       await backend.start({ command: settings.python(), args, cwd: config.praxisPath, env: environment })
     } catch (error) {
@@ -103,7 +106,7 @@ function registerIPC(): void {
     return changeConfiguration(async () => {
       const before = settings.get()
       const needsRestart = Boolean(patch.apiKey?.trim()) ||
-        (['praxisPath', 'pythonPath', 'model', 'baseUrl'] as const).some(key => patch[key] !== undefined && patch[key] !== before[key])
+        (['praxisPath', 'pythonPath', 'model', 'baseUrl', 'bypassApprovals'] as const).some(key => patch[key] !== undefined && patch[key] !== before[key])
       if (needsRestart && backend.busy) throw new Error('Stop running sessions before changing model or backend settings.')
       if (needsRestart) validateEngine({ ...before, ...patch })
       if (patch.workspace) assertDirectory(patch.workspace, 'Workspace')
@@ -190,7 +193,7 @@ if (hasLock) void app.whenReady().then(() => {
   settings = new SettingsStore(join(app.getPath('userData'), 'settings.json'), app.getAppPath())
   backend.on('event', event => { if (!window?.webContents.isDestroyed()) window?.webContents.send('praxis:event', event) })
   backend.on('connection', status => { if (!window?.webContents.isDestroyed()) window?.webContents.send('praxis:connection', status) })
-  backend.on('diagnostic', message => process.stderr.write(`[Praxis] ${message}`))
+  backend.on('diagnostic', message => writeDiagnostic(`[Praxis] ${message}`))
   registerIPC()
   createWindow()
   void startBackend().catch(() => { /* Connection state is shown in the interface. */ })

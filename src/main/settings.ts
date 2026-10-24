@@ -9,6 +9,7 @@ interface SavedSettings {
   workspace?: string
   model?: string
   baseUrl?: string
+  bypassApprovals?: boolean
   encryptedApiKey?: string
 }
 
@@ -39,6 +40,7 @@ export class SettingsStore {
       workspace: praxisPath,
       model: process.env.ADA_MODEL || 'auto(free)',
       baseUrl: process.env.ADA_BASE_URL || '',
+      bypassApprovals: true,
       apiKeyConfigured: Boolean(process.env.ADA_API_KEY)
     }
     try {
@@ -46,6 +48,7 @@ export class SettingsStore {
       for (const field of ['praxisPath', 'pythonPath', 'workspace', 'model', 'baseUrl', 'encryptedApiKey'] as const) {
         if (typeof data[field] === 'string') this.saved[field] = data[field]
       }
+      if (typeof data.bypassApprovals === 'boolean') this.saved.bypassApprovals = data.bypassApprovals
       if (this.saved.encryptedApiKey && safeStorage.isEncryptionAvailable()) {
         this.key = safeStorage.decryptString(Buffer.from(this.saved.encryptedApiKey, 'base64'))
       }
@@ -65,6 +68,10 @@ export class SettingsStore {
   update(patch: Partial<DesktopSettings> & { apiKey?: string }): DesktopSettings {
     const next = { ...this.saved }
     let nextKey = this.key
+    if (patch.bypassApprovals !== undefined) {
+      if (typeof patch.bypassApprovals !== 'boolean') throw new Error('Invalid approval mode')
+      next.bypassApprovals = patch.bypassApprovals
+    }
     for (const field of ['praxisPath', 'pythonPath', 'workspace', 'model', 'baseUrl'] as const) {
       if (patch[field] !== undefined) {
         if (typeof patch[field] !== 'string' || patch[field]!.length > 4096) throw new Error('Invalid setting value')

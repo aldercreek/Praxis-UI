@@ -19,6 +19,7 @@ export interface TranscriptMessage {
   call_id?: string
   status?: string
   arguments?: Record<string, unknown>
+  structured_output?: Record<string, unknown>
 }
 
 export interface Approval {
@@ -56,6 +57,7 @@ export interface DesktopSettings {
   workspace: string
   model: string
   baseUrl: string
+  bypassApprovals: boolean
   apiKeyConfigured: boolean
 }
 
