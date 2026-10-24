@@ -1,0 +1,76 @@
+src/main/diagnostics.ts
+  s_abc0052df0c3e8::t_8432b444263c72 1-18
+src/renderer/src/App.tsx
+  s_abc0052df0c3e8::t_d333b1d10528fc 2,51-52,59,67,75-76
+  s_abc0052df0c3e8::t_9140ab6101f7eb 9,53-55,65-66,68,93,168,174,195
+  s_abc0052df0c3e8::t_987b52573d6f09 61,64,73,78-79
+  s_abc0052df0c3e8::t_8b7bccf2276e01 62-63,72,74,77,80-85
+  s_abc0052df0c3e8::t_ab25b90b401204 60
+  s_abc0052df0c3e8::t_3caf2114e77391 1,268,271-272,275
+  s_abc0052df0c3e8::t_6aebaee94c335c 206,336-343
+  s_abc0052df0c3e8::t_1b68fb9abe537f 101,237-243,281-291,319,330
+tests/fixtures/ui-server.cjs
+  s_abc0052df0c3e8::t_07549fd87552ca 4,44,67,70,75-82,96-104
+  s_abc0052df0c3e8::t_0ab213fc808c35 83-84
+  s_abc0052df0c3e8::t_8f9886f1076b0c 54
+  s_abc0052df0c3e8::t_552b5ff051b3a8 89-90
+src/renderer/src/usePraxis.ts
+  s_abc0052df0c3e8::t_9c74044e615188 206
+src/renderer/src/state.ts
+  s_abc0052df0c3e8::t_1b68fb9abe537f 225
+  s_abc0052df0c3e8::t_1726960ed296b4 39-70,78,164-174,247-250
+src/renderer/src/toolPresentation.ts
+  s_abc0052df0c3e8::t_9140ab6101f7eb 3-14,17-19,43-45,47,51,53,55,59-71,77-78,82,87-88,95-96,100-107
+  s_abc0052df0c3e8::t_1726960ed296b4 1,25-32,83-84
+  s_abc0052df0c3e8::t_752bd0d0f2d260 33
+src/renderer/src/toolPresentation.test.ts
+  s_abc0052df0c3e8::t_12344137df0ab7 13,20,24-29,32,38,40-41,45-46,48,50-66,71-73
+src/shared/protocol.ts
+  s_abc0052df0c3e8::t_9c74044e615188 60
+  s_abc0052df0c3e8::t_1726960ed296b4 22
+src/main/settings.ts
+  s_abc0052df0c3e8::t_9c74044e615188 12,43,51,71-74
+tests/diagnostics.test.ts
+  s_abc0052df0c3e8::t_8432b444263c72 1-45
+tests/e2e/desktop.spec.ts
+  s_abc0052df0c3e8::t_d333b1d10528fc 166
+  s_abc0052df0c3e8::t_0ab213fc808c35 172-181,184
+  s_abc0052df0c3e8::t_1b68fb9abe537f 214,219,223-226,228-230
+  s_abc0052df0c3e8::t_552b5ff051b3a8 39,57,68,93,135-158,169-170,182-183,196-199,206,210,222,227
+  s_abc0052df0c3e8::t_161c5a8998e211 61
+  s_abc0052df0c3e8::t_1462521cbc1a59 62-65,75,80,98-117,161-163,186,189-195,200,212,217-218
+  s_abc0052df0c3e8::t_8f9886f1076b0c 120-134
+tests/settings.test.ts
+  s_abc0052df0c3e8::t_12344137df0ab7 1-41
+src/main/index.ts
+  s_abc0052df0c3e8::t_8432b444263c72 5,10,196
+  s_abc0052df0c3e8::t_9c74044e615188 61,64,78,109
+src/renderer/src/styles.css
+  s_abc0052df0c3e8::t_92d1ff06f681e0 36
+  s_abc0052df0c3e8::t_987b52573d6f09 112,118,160-161,167-169,176,178,180-181,184,186,190,193-195,198-202,205
+  s_abc0052df0c3e8::t_8b7bccf2276e01 25-28,124-125,157,177,182-183,189
+  s_abc0052df0c3e8::t_d333b1d10528fc 2,7,12-13,21-24,172-174,179,187
+  s_abc0052df0c3e8::t_3caf2114e77391 133
+  s_abc0052df0c3e8::t_752bd0d0f2d260 162,170-171,188,191-192,235,267-270
+  s_abc0052df0c3e8::t_ab25b90b401204 163
+  s_abc0052df0c3e8::t_1b68fb9abe537f 246-247
+  s_abc0052df0c3e8::t_0ab213fc808c35 185
+src/renderer/src/state.test.ts
+  s_abc0052df0c3e8::t_9806ba821842f7 55-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.51-trip",
+  "base_commit_sha": "3c58f326a9ede95ba3601b0d405038438f6d8f54",
+  "prompts": {},
+  "sessions": {
+    "s_abc0052df0c3e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a156f3-2d77-7d52-9689-8c8dfc80dd8f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    }
+  }
+}
