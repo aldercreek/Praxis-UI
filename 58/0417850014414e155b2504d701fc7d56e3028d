@@ -1,0 +1,19 @@
+README.md
+  s_da4263abd40288::t_5e6b3a3cabbb69 16-31,39,43,87-92,105-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.51-trip",
+  "base_commit_sha": "580417850014414e155b2504d701fc7d56e3028d",
+  "prompts": {},
+  "sessions": {
+    "s_da4263abd40288": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17135-e366-75a1-bfc8-4f1cd0fdd2e7",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    }
+  }
+}
