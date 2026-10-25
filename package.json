@@ -10,12 +10,14 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && electron-vite build",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "playwright test",
     "icons": "electron scripts/generate-icons.cjs",
     "package": "npm run icons && npm run build && electron-builder --dir"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",

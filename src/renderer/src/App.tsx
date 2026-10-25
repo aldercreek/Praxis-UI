@@ -1,13 +1,19 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, Check, CheckCheck, ChevronDown, ChevronRight, Circle, CircleAlert, Copy, FileText, Folder, GitBranch, Images, ListChecks, LoaderCircle, Maximize2, Minus, PanelLeft, Pencil, Plus, Search, Settings2, ShieldCheck, Square, SquareTerminal, X } from 'lucide-react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, Copy, FileText, Folder, GitBranch, GitCompareArrows, Images, ListChecks, LoaderCircle, Maximize2, Minus, PanelLeft, Pencil, Plus, Quote, Search, Settings2, ShieldCheck, Square, SquareTerminal, X } from 'lucide-react'
 import praxisMark from '../../../resources/brand/praxis-mark.svg'
 import praxisWordmark from '../../../resources/brand/praxis-wordmark.svg'
 import type { Approval, DesktopSettings } from '../../shared/protocol'
-import { isBusy, isChildAgent, type DisplayMessage, type PlanStep } from './state'
-import { groupTranscript, presentTool, type ToolKind } from './toolPresentation'
+import { isBusy, isChildAgent, type Conversation, type DisplayMessage, type PlanStep } from './state'
+import { presentTool, type ToolGroup, type ToolKind } from './toolPresentation'
+import { isProcessItem, presentTranscript, processLabel, type TranscriptTurn } from './transcriptPresentation'
 import { baseName, errorMessage, usePraxis } from './usePraxis'
+import { Disclosure, DisclosureState, useDisclosure } from './Disclosure'
+import { ExecutionBar, TurnPlan } from './ExecutionBar'
+import { FileNavigationContext, MarkdownContent } from './MarkdownContent'
+import { FilePanel, type PanelTarget } from './FilePanel'
+import { collectTurnChanges, fileChangePreviewPath, type TurnChanges } from './changeSummary'
+import { QuoteSelection, type TextQuote } from './QuoteSelection'
+import { formatQuotedInput, readQuotedInput } from './quotedInput'
 
 type Praxis = ReturnType<typeof usePraxis>
 
@@ -32,39 +38,25 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
   }}>{copied ? <Check size={13} /> : <Copy size={13} />}</IconButton>
 }
 
-function MarkdownContent({ content }: { content: string }) {
-  return <div className="markdown"><Markdown remarkPlugins={[remarkGfm]} components={{
-    a: ({ href, children }) => <a href={href} onClick={event => { event.preventDefault(); if (href && /^https?:\/\//i.test(href)) void window.praxis?.openExternal(href) }}>{children}</a>,
-    img: ({ alt }) => <span className="image-reference">[Image{alt ? `: ${alt}` : ''}]</span>,
-    pre: ({ children }) => <CodeBlock>{children}</CodeBlock>
-  }}>{content}</Markdown></div>
-}
-
-function CodeBlock({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLPreElement>(null)
-  const [copied, setCopied] = useState(false)
-  return <div className="code-block"><pre ref={ref}>{children}</pre><button className="code-copy" type="button" aria-label="Copy code" title="Copy code" onClick={() => {
-    void navigator.clipboard.writeText(ref.current?.innerText || '').then(() => setCopied(true)).catch(() => setCopied(false))
-  }}>{copied ? <Check size={13} /> : <Copy size={13} />}</button></div>
-}
-
-function ToolIcon({ kind, running = false, failed = false }: { kind: ToolKind; running?: boolean; failed?: boolean }) {
-  const Icon = failed ? CircleAlert : running ? LoaderCircle : { read: FileText, search: Search, edit: Pencil, command: SquareTerminal, image: Images, tool: ListChecks }[kind]
-  return <Icon size={14} className={`tool-icon${running ? ' spin' : ''}`} aria-hidden="true" />
+function ToolIcon({ kind, failed = false }: { kind: ToolKind; failed?: boolean }) {
+  const Icon = failed ? CircleAlert : { read: FileText, search: Search, edit: Pencil, command: SquareTerminal, image: Images, tool: ListChecks }[kind]
+  return <Icon size={14} className="tool-icon" aria-hidden="true" />
 }
 
 function ToolMessage({ message }: { message: DisplayMessage }) {
+  const files = useContext(FileNavigationContext)
   const tool = presentTool(message)
   const argument = message.arguments || {}
   const isCommand = tool.kind === 'command'
   const detailTitle = { command: 'Shell', read: '文件内容', search: '搜索结果', edit: '文件更改', image: '图片', tool: tool.name }[tool.kind]
   const resultText = message.content !== message.output ? message.content : ''
   const hasDiff = Boolean(message.file_change?.diff)
+  const previewPath = fileChangePreviewPath(message)
   const deferResult = hasDiff && tool.status === 'Complete'
   const detailText = [tool.command, message.output, resultText, message.file_change?.diff].filter(Boolean).join('\n\n')
-  return <details className={`tool-message ${tool.status === 'Failed' ? 'tool-error' : tool.status === 'Awaiting approval' ? 'tool-approval' : ''}`}>
+  return <Disclosure storageKey={message.id} data-message-id={message.id} className={`tool-message ${tool.status === 'Failed' ? 'tool-error' : tool.status === 'Awaiting approval' ? 'tool-approval' : ''}`}>
     <summary>
-      <ToolIcon kind={tool.kind} running={tool.running} failed={tool.status === 'Failed'} />
+      <ToolIcon kind={tool.kind} failed={tool.status === 'Failed'} />
       <span className="tool-summary" title={tool.fullTarget || tool.summary}>{tool.summary}</span>
       <ChevronRight className="disclosure-icon" size={12} aria-hidden="true" />
     </summary>
@@ -76,24 +68,82 @@ function ToolMessage({ message }: { message: DisplayMessage }) {
         {message.output && <pre className="terminal-output">{message.output}</pre>}
         {resultText && <pre className={tool.kind === 'edit' || (!isCommand && ['Failed', 'Denied', 'Stopped'].includes(tool.status)) ? 'tool-result-prose' : undefined}>{resultText}</pre>}
       </div>}
-      {message.file_change?.diff && <div className="tool-file-change"><div className="detail-label"><span title={message.file_change.path}>{message.file_change.path}</span><span>+{message.file_change.added} / −{message.file_change.removed}</span></div><pre className="file-diff">{message.file_change.diff.split('\n').map((line, index) => <span key={index} className={line.startsWith('+') ? 'diff-add' : line.startsWith('-') ? 'diff-remove' : ''}>{line || '\u00a0'}</span>)}</pre></div>}
+      {message.file_change?.diff && <div className="tool-file-change"><div className="detail-label"><button type="button" className="file-path-button" disabled={!previewPath} title={previewPath || '子任务未提供完整文件路径'} onClick={() => previewPath && files?.openFile(previewPath)}>{message.file_change.path}</button><span>+{message.file_change.added} / −{message.file_change.removed}</span></div><pre className="file-diff">{message.file_change.diff.split('\n').map((line, index) => <span key={index} className={line.startsWith('+') ? 'diff-add' : line.startsWith('-') ? 'diff-remove' : ''}>{line || '\u00a0'}</span>)}</pre></div>}
       {!hasDiff && !message.content && !message.output && <div className="tool-waiting">{message.status === 'approval' ? '确认后继续执行。' : message.status === 'denied' ? '已拒绝这次操作。' : message.status === 'cancelled' ? '操作已停止。' : tool.running || message.status === 'pending' ? '等待输出…' : '没有输出。'}</div>}
-      {(Object.keys(argument).length > 0 || (deferResult && (message.output || resultText))) && <details className="tool-arguments"><summary><ChevronRight className="disclosure-icon" size={12} aria-hidden="true" />{deferResult ? '执行详情' : '参数'}</summary>
+      {(Object.keys(argument).length > 0 || (deferResult && (message.output || resultText))) && <Disclosure storageKey={`${message.id}:arguments`} className="tool-arguments"><summary><ChevronRight className="disclosure-icon" size={12} aria-hidden="true" />{deferResult ? '执行详情' : '参数'}</summary>
         {deferResult && message.output && <pre>{message.output}</pre>}
         {deferResult && resultText && <pre className="tool-result-prose">{resultText}</pre>}
         {Object.keys(argument).length > 0 && <>{deferResult && <div className="detail-label">参数</div>}<pre>{JSON.stringify(argument, null, 2)}</pre></>}
-      </details>}
+      </Disclosure>}
     </div>
-  </details>
+  </Disclosure>
 }
 
-const Transcript = memo(function Transcript({ messages }: { messages: DisplayMessage[] }) {
-  return groupTranscript(messages).map(item => item.role === 'tool-group'
-    ? <details className="tool-group" key={item.id}>
-      <summary><ToolIcon kind={item.kind} /><span className="tool-summary" title={item.summary}>{item.summary}</span><ChevronRight className="disclosure-icon" size={12} aria-hidden="true" /></summary>
-      <div className="tool-group-items">{item.messages.map(message => <ToolMessage key={message.id} message={message} />)}</div>
-    </details>
-    : <Message key={item.id} message={item} />)
+function ToolActivity({ group, current }: { group: ToolGroup; current: boolean }) {
+  const single = group.messages.length === 1
+  const saved = useContext(DisclosureState)
+  const inspecting = group.messages.some(message => saved?.get(message.id))
+  const list = useRef<HTMLDivElement>(null)
+  const followTail = useRef(true)
+  useLayoutEffect(() => {
+    if (current && !inspecting && followTail.current && list.current) list.current.scrollTop = list.current.scrollHeight
+  }, [current, inspecting, group.messages])
+  return <Disclosure storageKey={group.id} defaultOpen={current || inspecting} forceOpen={single}
+    data-group-id={group.id} data-running={group.running}
+    className={`tool-group ${single ? 'tool-group-single' : ''} ${group.attention === 'failed' ? 'tool-error' : group.attention === 'approval' ? 'tool-approval' : ''}`}>
+    <summary hidden={single}><ToolIcon kind={group.kind} />
+      <span className="tool-summary" title={group.summary}>{group.summary}</span>
+      <ChevronRight className="disclosure-icon" size={12} aria-hidden="true" />
+      {group.attentionSummary && <span className="tool-attention" title={group.attentionLabel}>{group.attentionSummary}</span>}
+    </summary>
+    <div className="tool-group-items" ref={list} onScroll={event => {
+      const element = event.currentTarget
+      followTail.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24
+    }}>{group.messages.map(message => <ToolMessage key={message.id} message={message} />)}</div>
+  </Disclosure>
+}
+
+function ProcessTurn({ turn, plan, changed, onChanges }: { turn: TranscriptTurn; plan?: PlanStep[]; changed?: TurnChanges; onChanges: (turnId: string) => void }) {
+  const regionId = useId()
+  const ref = useRef<HTMLElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useDisclosure('process:' + turn.id + (turn.finalMessageId ? ':final' : ':live'), !turn.finalMessageId)
+  const hasProcess = turn.hasProcess || Boolean(plan?.length)
+  const controlledIds = turn.items.flatMap((item, index) => isProcessItem(item, turn.finalMessageId) ? [regionId + '-' + index] : [])
+  const failureCount = turn.items.reduce((count, item) => count + (item.role === 'tool-group' ? item.messages.filter(message => presentTool(message).status === 'Failed').length : 0), 0)
+  const firstProcessIndex = turn.items.findIndex(item => isProcessItem(item, turn.finalMessageId))
+  const headerIndex = firstProcessIndex < 0 ? Math.max(0, turn.items.findIndex(item => item.role !== 'user')) : firstProcessIndex
+  const lastItem = turn.items.at(-1)
+  useLayoutEffect(() => {
+    if (!open && ref.current && [...ref.current.querySelectorAll('.process-entry[hidden]')].some(entry => entry.contains(document.activeElement))) {
+      trigger.current?.focus({ preventScroll: true })
+    }
+  }, [open])
+  return <section className="transcript-turn" ref={ref} data-turn-id={turn.id}>
+    {turn.items.map((item, index) => {
+      const process = isProcessItem(item, turn.finalMessageId)
+      return <div className="turn-entry" key={item.id}>
+        {hasProcess && index === headerIndex && <>
+          <button ref={trigger} type="button" className="process-summary" aria-expanded={open}
+            aria-controls={[...controlledIds, ...(plan?.length ? [regionId + '-plan'] : [])].join(' ')} onClick={() => setOpen(!open)}>
+            <span>{processLabel(turn.execution)}</span><ChevronRight size={12} className="disclosure-icon" aria-hidden="true" />
+            {!open && failureCount > 0 && <span className="process-attention"><CircleAlert size={12} />含失败记录</span>}
+          </button>
+          {plan?.length ? <div id={regionId + '-plan'} className="process-entry" hidden={!open}><TurnPlan turnId={turn.id} plan={plan} /></div> : null}
+        </>}
+        <div id={regionId + '-' + index} className={process ? 'process-entry' : item.id === turn.finalMessageId ? 'turn-final' : undefined} hidden={hasProcess && process && !open}>
+          {item.role === 'tool-group' ? <ToolActivity group={item} current={turn.running && item === lastItem} /> : <Message message={item} />}
+        </div>
+      </div>
+    })}
+    {changed && <button type="button" className="turn-changes-summary" onClick={() => onChanges(changed.turnId)}><GitCompareArrows size={14} /><span>修改了 {changed.files.length} 个文件</span><ChevronRight size={12} /></button>}
+  </section>
+}
+
+const Transcript = memo(function Transcript({ conversation, changes, onChanges }: { conversation: Conversation; changes: TurnChanges[]; onChanges: (turnId: string) => void }) {
+  return presentTranscript(conversation).map(turn => <ProcessTurn key={turn.id} turn={turn}
+    plan={turn.id !== conversation.activeTurnId ? conversation.plansByTurn[turn.id] : undefined}
+    changed={changes.find(change => change.turnId === turn.id)} onChanges={onChanges} />)
 })
 
 const Message = memo(function Message({ message }: { message: DisplayMessage }) {
@@ -104,25 +154,18 @@ const Message = memo(function Message({ message }: { message: DisplayMessage }) 
     <span>{message.content}{message.agent_id && <span className="muted"> · {message.status || message.agent_id}</span>}</span>
   </div>
   const deliveryStatus = ['queued', 'sending', 'paused'].includes(message.status || '')
-  return <article className={`message message-${message.role}`} aria-label={message.role === 'user' ? 'Your message' : 'Assistant response'}>
+  const quoted = message.role === 'user' ? readQuotedInput(message.content) : undefined
+  return <article className={`message message-${message.role}`} aria-label={message.role === 'user' ? 'Your message' : 'Assistant response'} data-quote-message-id={message.role === 'assistant' && !isChildAgent(message.agent_id) ? message.id : undefined}>
     {(isChildAgent(message.agent_id) || deliveryStatus) && <div className="message-label">
       {isChildAgent(message.agent_id) && <span>Subtask · {message.agent_id}</span>}
       {message.status === 'queued' && <span className="queued-label">Queued</span>}
       {message.status === 'sending' && <span className="queued-label">Sending</span>}
       {message.status === 'paused' && <span className="queued-label">Not received</span>}
     </div>}
-    {message.role === 'user' ? <div className="user-content">{message.content}</div> : <MarkdownContent content={message.content} />}
+    {message.role === 'user' ? <div className="user-content">{quoted ? <><details className="sent-quote"><summary><Quote size={12} /><span>{quoted.quote}</span><ChevronRight size={12} /></summary><blockquote>{quoted.quote}</blockquote></details><div>{quoted.text}</div></> : message.content}</div> : <MarkdownContent content={message.content} allowRelativeFiles={!isChildAgent(message.agent_id)} streaming={message.status === 'streaming'} />}
     {message.role === 'assistant' && message.status !== 'streaming' && <div className="message-actions"><CopyButton text={message.content} label="Copy response" /></div>}
   </article>
 })
-
-function Plan({ plan, busy }: { plan: PlanStep[]; busy: boolean }) {
-  const completed = plan.filter(step => step.status === 'completed').length
-  return <details className="plan" open>
-    <summary><ChevronRight className="disclosure-icon" size={13} /><CheckCheck size={14} /><span>Task plan</span><span className="muted">{completed} / {plan.length}</span></summary>
-    <ol>{plan.map((step, index) => <li key={index} className={step.status}>{step.status === 'completed' ? <Check size={13} /> : step.status === 'in_progress' && busy ? <LoaderCircle size={13} className="spin" /> : <Circle size={12} />}<span>{step.description}</span></li>)}</ol>
-  </details>
-}
 
 function ApprovalPrompt({ approval, onRespond }: { approval: Approval; onRespond: (id: string, approved: boolean) => Promise<void> }) {
   const [pending, setPending] = useState(false)
@@ -220,15 +263,49 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(window.innerWidth < 900)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [quotes, setQuotes] = useState<Record<string, TextQuote | undefined>>({})
+  const [panel, setPanel] = useState<{ session: string; target: PanelTarget }>()
+  const [compactPanel, setCompactPanel] = useState(window.innerWidth <= 1100)
   const [showScroll, setShowScroll] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const stickToBottom = useRef(true)
+  const previewTrigger = useRef<HTMLElement | null>(null)
+  const disclosureSessions = useRef(new Map<string, Map<string, boolean>>())
+  const disclosures = useMemo(() => {
+    const key = praxis.activeId || 'new'
+    if (!disclosureSessions.current.has(key)) disclosureSessions.current.set(key, new Map())
+    return disclosureSessions.current.get(key)!
+  }, [praxis.activeId])
   const draftKey = praxis.activeId || `new:${praxis.workspace}`
   const draft = drafts[draftKey] || ''
   const active = praxis.active
+  const workspace = active?.summary?.workspace || praxis.workspace
+  const quote = quotes[draftKey]
+  const panelTarget = panel?.session === draftKey ? panel.target : undefined
+  const changes = useMemo(() => collectTurnChanges(active?.messages || [], workspace), [active?.messages, workspace])
+  const currentChanges = changes.find(turn => turn.turnId === active?.activeTurnId)
+  const openPanel = useCallback((target: PanelTarget) => {
+    if (!panel) previewTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    stickToBottom.current = false
+    setPanel({ session: draftKey, target })
+  }, [draftKey, panel])
+  const closePanel = useCallback(() => {
+    setPanel(undefined)
+    requestAnimationFrame(() => {
+      if (previewTrigger.current?.isConnected) previewTrigger.current.focus({ preventScroll: true })
+      else textareaRef.current?.focus({ preventScroll: true })
+    })
+  }, [])
+  const openFile = useCallback((path: string) => openPanel({ type: 'file', path, turnId: active?.activeTurnId }), [openPanel, active?.activeTurnId])
+  const openChanges = useCallback((turnId: string) => openPanel({ type: 'changes', turnId }), [openPanel])
+  const fileNavigation = useMemo(() => ({ workspace, openFile, onError: praxis.setError }), [workspace, openFile, praxis.setError])
+  const addQuote = useCallback((value: TextQuote) => {
+    if (praxis.sending) return
+    setQuotes(previous => ({ ...previous, [draftKey]: value }))
+    requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
+  }, [draftKey, praxis.sending])
   const busy = isBusy(active?.summary?.status)
-  const toolActivityVisible = active?.messages.some(message => message.role === 'tool' && ['running', 'pending', 'approval'].includes(message.status || ''))
   const stopping = active?.summary?.status === 'stopping'
   const connected = praxis.connection.state === 'connected'
   const loading = praxis.loadingSession === praxis.activeId && Boolean(praxis.activeId)
@@ -238,7 +315,6 @@ export default function App() {
     const container = scrollRef.current
     if (!container) return
     const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 64
-    stickToBottom.current = nearBottom
     setShowScroll(!nearBottom)
   }, [])
 
@@ -248,6 +324,15 @@ export default function App() {
     compact.addEventListener('change', onChange)
     return () => compact.removeEventListener('change', onChange)
   }, [])
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1100px)')
+    const resize = () => setCompactPanel(media.matches)
+    media.addEventListener('change', resize)
+    return () => media.removeEventListener('change', resize)
+  }, [])
+
+  useEffect(() => { setPanel(undefined) }, [draftKey])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -276,27 +361,39 @@ export default function App() {
     if (!stickToBottom.current) return
     const container = scrollRef.current
     if (container) container.scrollTop = container.scrollHeight
-  }, [active?.messages, active?.approvals, active?.plan, loading])
+  }, [active?.messages, active?.approvals, active?.plansByTurn, loading])
 
   useEffect(() => {
     const container = scrollRef.current
     if (!container) return
-    // Disclosure and window resizing can change the distance to the bottom
-    // without a scroll event. Keep the affordance in sync with the actual view.
-    const observer = new ResizeObserver(syncScrollState)
+    // Layout changes update the affordance, not the user's scroll intent.
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        syncScrollState()
+      })
+    })
     observer.observe(container)
     if (container.firstElementChild) observer.observe(container.firstElementChild)
-    return () => observer.disconnect()
+    return () => { observer.disconnect(); cancelAnimationFrame(frame) }
   }, [syncScrollState])
 
   const submit = async () => {
     if (!draft.trim() || !ready || praxis.sending || stopping) return
     const key = draftKey
     const content = draft
+    const selectedQuote = quote
     setDrafts(previous => ({ ...previous, [key]: '' }))
     stickToBottom.current = true
-    const result = await praxis.send(content)
-    if (!result.success) setDrafts(previous => ({ ...previous, [result.sessionId || key]: content }))
+    const result = await praxis.send(formatQuotedInput(content, selectedQuote))
+    if (!result.success) {
+      setDrafts(previous => {
+        const destination = result.sessionId || key
+        return { ...previous, [destination]: previous[destination] ? `${content}\n\n${previous[destination]}` : content }
+      })
+      if (selectedQuote && result.sessionId && result.sessionId !== key) setQuotes(previous => ({ ...previous, [result.sessionId!]: selectedQuote }))
+    } else if (selectedQuote) setQuotes(previous => previous[key] === selectedQuote ? { ...previous, [key]: undefined } : previous)
     requestAnimationFrame(() => textareaRef.current?.focus())
   }
 
@@ -307,29 +404,44 @@ export default function App() {
     <Sidebar praxis={praxis} collapsed={sidebarCollapsed} toggleSidebar={() => setSidebarCollapsed(value => !value)} openSettings={() => setSettingsOpen(true)} />
     <main className="main">
       <header className="titlebar">
-        <div className="titlebar-leading">{sidebarCollapsed && <IconButton label="Expand sidebar" onClick={() => setSidebarCollapsed(false)}><PanelLeft size={16} /></IconButton>}<span className="titlebar-title" title={title}>{title}</span>{busy && <span className="toolbar-status">{stopping ? 'Stopping' : 'In progress'}</span>}</div>
-        <div className="titlebar-actions">{sidebarCollapsed && <IconButton label="New chat" onClick={praxis.newChat}><Plus size={17} /></IconButton>}
+        <div className="titlebar-leading">{sidebarCollapsed && <IconButton label="Expand sidebar" onClick={() => setSidebarCollapsed(false)}><PanelLeft size={16} /></IconButton>}<span className="titlebar-title" title={title}>{title}</span></div>
+        <div className="titlebar-actions">{currentChanges && <button type="button" className="changes-trigger" aria-label="查看本轮改动" aria-expanded={panelTarget?.type === 'changes' && panelTarget.turnId === currentChanges.turnId} onClick={() => openChanges(currentChanges.turnId)}><GitCompareArrows size={14} /><span>改动 {currentChanges.files.length}</span></button>}{sidebarCollapsed && <IconButton label="New chat" onClick={praxis.newChat}><Plus size={17} /></IconButton>}
         <div className="window-controls"><IconButton label="Minimize" onClick={() => praxis.api?.windowAction('minimize')}><Minus size={15} /></IconButton><IconButton label="Maximize or restore" onClick={() => praxis.api?.windowAction('maximize')}><Maximize2 size={12} /></IconButton><IconButton label="Close window" className="window-close" onClick={() => praxis.api?.windowAction('close')}><X size={16} /></IconButton></div>
         </div>
       </header>
 
       {(connectionProblem || praxis.configured === false) && <div className="connection-banner" role="status"><CircleAlert size={16} /><span>{connectionProblem ? praxis.connection.message || 'Unable to connect to local Praxis. Check your runtime settings.' : 'No model API key configured. Add one in Settings or the Praxis environment.'}</span><button type="button" onClick={() => setSettingsOpen(true)}>Open settings</button>{connectionProblem && praxis.api && <button type="button" onClick={() => { void praxis.api.restart().catch(error => praxis.setError(errorMessage(error))) }}>Reconnect</button>}</div>}
 
-      <div className={`conversation-body ${empty ? 'is-new' : ''}`}>
-      <div className="transcript" ref={scrollRef} onScroll={syncScrollState}>
+      <div className={`workspace-content ${panelTarget ? 'has-panel' : ''}`}>
+      <div className={`conversation-body ${empty ? 'is-new' : ''}`} inert={Boolean(panelTarget && compactPanel)}>
+      <div className="transcript" ref={scrollRef} onScroll={() => {
+        const container = scrollRef.current
+        if (container) stickToBottom.current = container.scrollHeight - container.scrollTop - container.clientHeight < 64
+        syncScrollState()
+      }} onWheel={event => {
+        if (event.deltaY < 0) stickToBottom.current = false
+      }} onClickCapture={event => {
+        if (event.target instanceof Element && event.target.closest('summary, .process-summary')) stickToBottom.current = false
+      }} onKeyDownCapture={event => {
+        if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof Element && event.target.closest('summary, .process-summary')) stickToBottom.current = false
+      }}>
         <div className="transcript-content">
-          {loading ? <div className="transcript-skeleton" aria-label="Loading chat history"><i /><i /><i /><i /></div> : empty ? <div className="empty-state"><h1><img className="welcome-wordmark" src={praxisWordmark} alt="Praxis" width={340} height={97} /></h1></div> : active && <Transcript messages={active.messages} />}
-          {active && active.plan.length > 0 && <Plan plan={active.plan} busy={busy} />}
+          <DisclosureState.Provider value={disclosures}>
+          <FileNavigationContext.Provider value={fileNavigation}>
+          {loading ? <div className="transcript-skeleton" aria-label="Loading chat history"><i /><i /><i /><i /></div> : empty ? <div className="empty-state"><h1><img className="welcome-wordmark" src={praxisWordmark} alt="Praxis" width={340} height={97} /></h1></div> : active && <Transcript key={praxis.activeId} conversation={active} changes={changes} onChanges={openChanges} />}
+          </FileNavigationContext.Provider>
+          </DisclosureState.Provider>
           {active?.approvals.map(approval => <ApprovalPrompt key={approval.approval_id} approval={approval} onRespond={praxis.approve} />)}
-          {active && active.pausedInputs.length > 0 && <section className="paused-inputs"><div className="detail-label">These follow-up messages were not received. Copy them to send again.</div>{active.pausedInputs.map((text, index) => <div key={index}><span>{text}</span><CopyButton text={text} label="Copy unsent message" /></div>)}</section>}
-          {busy && !toolActivityVisible && <div className="activity" role="status"><LoaderCircle size={13} className="spin" /><span>{active?.activity || 'Running'}</span></div>}
+          {active && active.pendingInputs.length > 0 && <section className="paused-inputs"><div className="detail-label">待处理输入</div>{active.pendingInputs.map(item => <div key={item.command_id}><span>{item.content}</span><button onClick={() => void praxis.deleteInput(item.command_id)}>删除</button></div>)}{!busy && <button onClick={() => void praxis.resumeInputs()}>继续处理</button>}</section>}
         </div>
       </div>
 
       <div className="composer-region">
         {showScroll && <button type="button" className="scroll-bottom" aria-label="回到最新消息" title="回到最新消息" onClick={() => { const container = scrollRef.current; if (container) container.scrollTop = container.scrollHeight; stickToBottom.current = true; setShowScroll(false) }}><ArrowDown size={16} aria-hidden="true" /></button>}
         {praxis.error && <div className="composer-error" role="alert"><CircleAlert size={14} /><span>{praxis.error}</span><IconButton label="Dismiss error" onClick={() => praxis.setError('')}><X size={13} /></IconButton></div>}
+        {!loading && active && (busy || active.plan.length > 0) && <ExecutionBar key={`${praxis.activeId}:${active.activeTurnId || 'current'}`} conversation={active} />}
         <form className={`composer ${busy ? 'composer-running' : ''}`} onSubmit={event => { event.preventDefault(); void submit() }}>
+          {quote && <div className="quote-draft"><details><summary><Quote size={14} /><span><strong>引用助手回复</strong><span>{quote.text}</span></span><ChevronRight size={12} /></summary><blockquote>{quote.text}</blockquote></details><IconButton label="移除引用" disabled={praxis.sending} onClick={() => setQuotes(previous => ({ ...previous, [draftKey]: undefined }))}><X size={13} /></IconButton></div>}
           <textarea ref={textareaRef} aria-label={busy ? 'Follow-up message' : 'Send message'} value={draft} onChange={event => setDraft(event.target.value)} rows={2} disabled={loading} placeholder={stopping ? 'Stopping task…' : busy ? 'Add details or adjust the task…' : 'What would you like to work on?'} onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); void submit() }
           }} />
@@ -344,7 +456,10 @@ export default function App() {
         </form>
       </div>
       </div>
+      {panelTarget && <FilePanel key={draftKey} target={panelTarget} workspace={workspace} turns={changes} activeTurnId={active?.activeTurnId} onTarget={openPanel} onClose={closePanel} />}
+      </div>
     </main>
+    {!settingsOpen && !praxis.sending && !(panelTarget && compactPanel) && <QuoteSelection rootRef={scrollRef} sessionKey={draftKey} onQuote={addQuote} />}
     <SettingsDialog praxis={praxis} open={settingsOpen} close={() => setSettingsOpen(false)} />
   </div>
 }

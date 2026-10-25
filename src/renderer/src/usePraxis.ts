@@ -23,6 +23,9 @@ export function usePraxis() {
   const connectionGeneration = useRef(0)
   const refreshGeneration = useRef(0)
   conversationsRef.current = conversations
+  useEffect(() => {
+    for (const [id, conversation] of Object.entries(conversations)) api?.acknowledge(id, conversation.sequence)
+  }, [api, conversations])
 
   const refresh = useCallback(async (selectedWorkspace = workspaceRef.current) => {
     if (!api) return
@@ -47,6 +50,7 @@ export function usePraxis() {
 
   useEffect(() => {
     if (!api) return
+    let previousConnection: ConnectionStatus['state'] = 'connecting'
     const offEvent = api.onEvent(event => {
       if (!event.session_id) return
       const buffered = snapshots.current.get(event.session_id)
@@ -57,8 +61,10 @@ export function usePraxis() {
       setConversations(previous => ({ ...previous, [event.session_id!]: applyEvent(previous[event.session_id!] || emptyConversation(), event) }))
     })
     const offConnection = api.onConnection(status => {
+      const resumed = previousConnection === 'reconnecting'
+      previousConnection = status.state
       setConnection(status)
-      if (status.state === 'connected') {
+      if (status.state === 'connected' && !resumed) {
         connectionGeneration.current += 1
         snapshots.current.clear()
         setLoadingSession(null)
@@ -71,13 +77,14 @@ export function usePraxis() {
         setLoadingSession(null)
         setConversations(previous => Object.fromEntries(Object.entries(previous).map(([id, conversation]) => [id, {
           ...conversation, loaded: false, approvals: [], activity: '',
-          summary: conversation.summary && isBusy(conversation.summary.status) ? { ...conversation.summary, status: 'failed' as const } : conversation.summary
+          summary: conversation.summary
         }])))
       }
     })
     api.getInfo().then(value => {
       setInfo(value)
       setConnection(value.connection)
+      previousConnection = value.connection.state
       workspaceRef.current = value.settings.workspace
       setWorkspace(value.settings.workspace)
       if (value.connection.state === 'connected') void refresh(value.settings.workspace)
@@ -149,11 +156,11 @@ export function usePraxis() {
         return { ...previous, [sessionId!]: {
           ...conversation,
           summary: conversation.summary ? { ...conversation.summary, status: queued ? conversation.summary.status : 'running' } : undefined,
-          messages: [...conversation.messages, { id: messageId, role: 'user', content: text, status: queued ? 'queued' : 'sending' }],
+          messages: [...conversation.messages, { id: messageId, role: 'user', content: text, status: queued ? 'queued' : 'sending', turn_id: queued ? conversation.activeTurnId : undefined }],
           activity: queued ? conversation.activity : 'Starting'
         } }
       })
-      await api.request(queued ? 'turn.input' : 'turn.start', { session_id: sessionId, text })
+      await api.request('input.submit', { session_id: sessionId, command_id: messageId, text })
       setConversations(previous => {
         const conversation = previous[sessionId!]
         return conversation ? { ...previous, [sessionId!]: { ...conversation, pausedInputs: conversation.pausedInputs.filter(pending => pending !== text) } } : previous
@@ -178,10 +185,13 @@ export function usePraxis() {
   const stop = useCallback(async () => {
     if (!activeId) return
     try {
-      await api.request('turn.stop', { session_id: activeId })
+      const turnId = conversationsRef.current[activeId]?.summary?.active_turn?.id
+      if (!turnId) return
+      const result = await api.request<{ cancel_requested?: boolean }>('turn.cancel', { session_id: activeId, turn_id: turnId })
+      if (!result.cancel_requested) return
       setConversations(previous => {
         const conversation = previous[activeId]
-        if (!conversation?.summary || !isBusy(conversation.summary.status)) return previous
+        if (!conversation?.summary || conversation.summary.active_turn?.id !== turnId || !isBusy(conversation.summary.status)) return previous
         return { ...previous, [activeId]: { ...conversation, summary: { ...conversation.summary, status: 'stopping' }, activity: 'Stopping' } }
       })
     } catch (error) { setError(errorMessage(error)) }
@@ -190,9 +200,21 @@ export function usePraxis() {
   const approve = useCallback(async (approvalId: string, approved: boolean) => {
     if (!activeId) return
     try {
-      await api.request('approval.respond', { session_id: activeId, approval_id: approvalId, approved })
+      await api.request('approval.decide', { session_id: activeId, approval_id: approvalId, approved })
       setConversations(previous => ({ ...previous, [activeId]: { ...previous[activeId], approvals: previous[activeId].approvals.filter(approval => approval.approval_id !== approvalId) } }))
     } catch (error) { setError(errorMessage(error)); throw error }
+  }, [activeId, api])
+
+  const resumeInputs = useCallback(async () => {
+    if (!activeId) return
+    try { await api.request('input.resume', { session_id: activeId, command_id: crypto.randomUUID() }) }
+    catch (error) { setError(errorMessage(error)) }
+  }, [activeId, api])
+
+  const deleteInput = useCallback(async (commandId: string) => {
+    if (!activeId) return
+    try { await api.request('input.delete', { session_id: activeId, command_id: commandId }) }
+    catch (error) { setError(errorMessage(error)) }
   }, [activeId, api])
 
   const saveSettings = useCallback(async (settings: Partial<Omit<DesktopSettings, 'apiKeyConfigured'>> & { apiKey?: string }) => {
@@ -202,7 +224,7 @@ export function usePraxis() {
     if (nextInfo.settings.workspace !== workspaceRef.current) newChat()
     workspaceRef.current = nextInfo.settings.workspace
     setWorkspace(nextInfo.settings.workspace)
-    // Restarted backends recover persisted history; loaded snapshots must be requested again.
+    // Explicit configuration changes reattach the client and reload its snapshots.
     const engineChanged = ['praxisPath', 'pythonPath', 'model', 'baseUrl', 'apiKey', 'bypassApprovals'].some(key => key in settings)
     if (engineChanged) {
       setConversations(previous => Object.fromEntries(Object.entries(previous).map(([id, conversation]) => [id, { ...conversation, loaded: false }])))
@@ -218,6 +240,6 @@ export function usePraxis() {
   return {
     api, info, connection, conversations, activeId, active: activeId ? conversations[activeId] : undefined,
     workspace, sessions, error, setError, listing, sending, configured, loadingSession,
-    refresh, openSession, newChat, chooseWorkspace, send, stop, approve, saveSettings
+    refresh, openSession, newChat, chooseWorkspace, send, stop, approve, resumeInputs, deleteInput, saveSettings
   }
 }

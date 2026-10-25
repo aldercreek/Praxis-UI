@@ -1,11 +1,181 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PraxisEvent, SessionSnapshot, SessionSummary } from '../../shared/protocol'
 import { applyEvent, applySnapshot, emptyConversation, type Conversation } from './state'
 
 const session: SessionSummary = { id: 'session-a', title: 'Task A', workspace: '/work', model: 'test', status: 'running', updated_at: '2026-10-20T00:00:00Z' }
 const event = (name: string, sequence: number, data: Record<string, unknown> = {}, agentId = 'main'): PraxisEvent => ({ event: name, session_id: session.id, turn_id: 'turn-a', agent_id: agentId, sequence, data })
 
+describe('turn execution metadata', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('confirms an unchanged streamed final answer and preserves its finish time through cleanup', () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    const started = applyEvent({ ...emptyConversation(), summary: session }, event('TurnStarted', 1, { task: 'hello' }))
+    let current = applyEvent(started, event('AssistantTextDelta', 2, { request_number: 1, text: 'answer' }))
+    const answerId = current.messages.at(-1)!.id
+    expect(current.turnsById['turn-a']).toEqual({ status: 'running', startedAt: 1000 })
+
+    clock.mockReturnValue(2000)
+    current = applyEvent(current, event('AssistantTextCompleted', 3, { text: 'answer' }))
+    expect(current.messages.filter(message => message.role === 'assistant')).toEqual([
+      expect.objectContaining({ id: answerId, content: 'answer', status: 'complete' })
+    ])
+    expect(current.turnsById['turn-a']).toEqual({ status: 'completed', startedAt: 1000, finishedAt: 2000, finalMessageId: answerId })
+    expect(started.turnsById['turn-a']).toEqual({ status: 'running', startedAt: 1000 })
+    expect(current.summary?.status).toBe('running')
+
+    clock.mockReturnValue(5000)
+    current = [event('TurnCompleted', 4), event('TurnSettled', 5, { status: 'idle' })].reduce(applyEvent, current)
+    expect(current.turnsById['turn-a'].finishedAt).toBe(2000)
+    expect(current.turnsById['turn-a'].finalMessageId).toBe(answerId)
+    expect(current.summary?.status).toBe('idle')
+  })
+
+  it('does not classify a completed model response as the final answer', () => {
+    let current = applyEvent(emptyConversation(), event('TurnStarted', 1, { task: 'Inspect the project' }))
+    current = applyEvent(current, event('ModelRequestCompleted', 2, { request_number: 1, output_text: 'I will inspect the files.' }))
+    expect(current.messages.at(-1)?.status).toBe('complete')
+    expect(current.turnsById['turn-a']).toMatchObject({ status: 'running' })
+    expect(current.turnsById['turn-a'].finalMessageId).toBeUndefined()
+    expect(current.turnsById['turn-a'].finishedAt).toBeUndefined()
+  })
+
+  it('does not promote previous commentary when the final event has no answer text', () => {
+    let current = applyEvent(emptyConversation(), event('TurnStarted', 1, { task: 'Inspect the project' }))
+    current = applyEvent(current, event('ModelRequestCompleted', 2, { request_number: 1, output_text: 'I will inspect the files.' }))
+    current = applyEvent(current, event('AssistantTextCompleted', 3, { text: '' }))
+    expect(current.turnsById['turn-a'].status).toBe('completed')
+    expect(current.turnsById['turn-a'].finalMessageId).toBeUndefined()
+    expect(current.messages.at(-1)?.content).toBe('I will inspect the files.')
+  })
+
+  it.each(['AssistantTextCompleted', 'TurnCompleted', 'TurnFailed', 'TurnCancelled', 'TurnSettled'])('keeps the parent execution open when a child emits %s', name => {
+    vi.spyOn(Date, 'now').mockReturnValue(1000)
+    const started = applyEvent({ ...emptyConversation(), summary: session }, event('TurnStarted', 1, { task: 'parent' }))
+    const childText = applyEvent(started, event('AssistantTextDelta', 2, { request_number: 1, child_turn_id: 'child-a', text: 'child answer' }, 'worker'))
+    const next = applyEvent(childText, event(name, 3, { text: 'child answer', status: 'completed', child_turn_id: 'child-a' }, 'worker'))
+    expect(next.turnsById).toBe(started.turnsById)
+    expect(next.turnsById).toEqual({ 'turn-a': { status: 'running', startedAt: 1000 } })
+    expect(next.summary?.status).toBe('running')
+  })
+
+  it.each([
+    { name: 'TurnCancelled', status: 'cancelled' },
+    { name: 'TurnFailed', status: 'failed' }
+  ])('does not promote partial text to a final answer on $name', ({ name, status }) => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    let current = applyEvent(emptyConversation(), event('TurnStarted', 1, { task: 'hello' }))
+    current = applyEvent(current, event('AssistantTextDelta', 2, { request_number: 1, text: 'partial text' }))
+    clock.mockReturnValue(2000)
+    current = applyEvent(current, event(name, 3, { message: 'Request failed' }))
+    expect(current.turnsById['turn-a']).toEqual({ status, startedAt: 1000, finishedAt: 2000 })
+    expect(current.messages.at(-1)).toMatchObject({ role: 'system', turn_id: 'turn-a' })
+
+    clock.mockReturnValue(5000)
+    current = applyEvent(current, event('TurnSettled', 4, { status }))
+    expect(current.turnsById['turn-a']).toEqual({ status, startedAt: 1000, finishedAt: 2000 })
+  })
+
+  it('tracks each turn independently when used directly as an Array.reduce callback', () => {
+    vi.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValueOnce(2000).mockReturnValueOnce(3000).mockReturnValueOnce(4500)
+    const current = [
+      event('TurnStarted', 1, { task: 'first' }),
+      event('TurnCompleted', 2),
+      { ...event('TurnStarted', 3, { task: 'second' }), turn_id: 'turn-b' },
+      { ...event('TurnCancelled', 4), turn_id: 'turn-b' }
+    ].reduce(applyEvent, emptyConversation())
+    expect(current.turnsById).toEqual({
+      'turn-a': { status: 'completed', startedAt: 1000, finishedAt: 2000 },
+      'turn-b': { status: 'cancelled', startedAt: 3000, finishedAt: 4500 }
+    })
+  })
+
+  it('does not invent execution times or final markers from a completed snapshot', () => {
+    const current = applySnapshot({ session: { ...session, status: 'idle' }, sequence: 5, approvals: [], messages: [
+      { id: 'user', role: 'user', content: 'task', turn_id: 'turn-a', agent_id: 'main' },
+      { id: 'answer', role: 'assistant', content: 'answer', turn_id: 'turn-a', agent_id: 'main', status: 'completed' }
+    ] })
+    expect(current.turnsById).toEqual({})
+  })
+
+  it('attaches child status messages to their parent turn for process grouping', () => {
+    const current = applyEvent(emptyConversation(), event('ChildAgentStatus', 1, { task_summary: 'Inspect tests', status: 'running' }, 'worker'))
+    expect(current.messages[0]).toMatchObject({ role: 'system', turn_id: 'turn-a', agent_id: 'worker', content: 'Inspect tests' })
+  })
+})
+
 describe('conversation event reconciliation', () => {
+  it('retains the previous turn plan and ignores child or late plans for the active progress bar', () => {
+    const plan = [{ description: 'Inspect the project', status: 'in_progress' }]
+    let current = applyEvent({ ...emptyConversation(), summary: session }, event('TurnStarted', 1, { task: 'first' }))
+    current = applyEvent(current, event('PlanUpdated', 2, { plan }))
+    current = applyEvent(current, { ...event('TurnStarted', 3, { task: 'next' }), turn_id: 'turn-b' })
+    expect(current.plan).toEqual([])
+    expect(current.plansByTurn['turn-a']).toEqual(plan)
+    current = applyEvent(current, event('PlanUpdated', 4, { plan: [{ ...plan[0], status: 'completed' }] }))
+    current = applyEvent(current, { ...event('PlanUpdated', 5, { plan }, 'worker'), turn_id: 'turn-b' })
+    expect(current.plan).toEqual([])
+    expect(current.activeTurnId).toBe('turn-b')
+    expect(current.plansByTurn['turn-a'][0].status).toBe('completed')
+    expect(current.plansByTurn['turn-b']).toBeUndefined()
+  })
+
+  it('restores the latest successful root plan per turn from saved tool calls', () => {
+    const first = [{ description: 'Read the project', status: 'completed' }]
+    const second = [{ description: 'Run tests', status: 'pending' }]
+    const planCall = (id: string, turn: string, plan: typeof first, status = 'complete', agent = 'main') => ({
+      id, turn_id: turn, role: 'tool' as const, tool_name: 'update_plan', content: '', arguments: { plan }, status, agent_id: agent
+    })
+    const restored = applySnapshot({ session: { ...session, status: 'idle' }, sequence: 6, approvals: [], messages: [
+      planCall('plan-a', 'turn-a', first), planCall('plan-b', 'turn-b', second),
+      planCall('failed-plan', 'turn-b', first, 'failed'), planCall('child-plan', 'turn-b', first, 'complete', 'worker')
+    ] })
+    expect(restored.plansByTurn).toEqual({ 'turn-a': first, 'turn-b': second })
+    expect(restored.activeTurnId).toBe('turn-b')
+    expect(restored.plan).toEqual(second)
+  })
+
+  it('does not mark pending steps complete when a turn settles', () => {
+    let current = applyEvent({ ...emptyConversation(), summary: session }, event('PlanUpdated', 1, {
+      plan: [{ step: 'Inspect files', status: 'completed' }, { description: 'Run tests', status: 'pending' }]
+    }))
+    current = applyEvent(current, event('TurnSettled', 2, { status: 'completed' }))
+    expect(current.plan.map(step => step.status)).toEqual(['completed', 'pending'])
+    expect(current.plansByTurn['turn-a']).toEqual(current.plan)
+  })
+
+  it('applies a successful plan call before its metadata event so a duplicate tool row need not flash', () => {
+    const plan = [{ step: 'Inspect files', status: 'in_progress' }]
+    let current = applyEvent(emptyConversation(), event('ToolCallPrepared', 1, { call_id: 'plan', tool_name: 'update_plan', arguments: { plan } }))
+    expect(current.plan).toEqual([])
+    current = applyEvent(current, event('ToolFinished', 2, { call_id: 'plan', tool_name: 'update_plan', result: { success: true, output: 'Plan updated.' } }))
+    expect(current.plan).toEqual([{ description: 'Inspect files', status: 'in_progress' }])
+    expect(current.plansByTurn['turn-a']).toEqual(current.plan)
+    current = applyEvent(current, event('ToolCallPrepared', 3, { call_id: 'invalid-plan', tool_name: 'update_plan', arguments: { plan: [{ step: 'Invalid', status: 'completed' }] } }))
+    current = applyEvent(current, event('ToolFinished', 4, { call_id: 'invalid-plan', tool_name: 'update_plan', result: { success: false, output: 'Rejected' } }))
+    expect(current.plan).toEqual([{ description: 'Inspect files', status: 'in_progress' }])
+  })
+
+  it('restores cold history without turn IDs and excludes calls without a successful result', () => {
+    const earlier = [{ step: 'Read files', status: 'completed' }]
+    const current = [{ step: 'Check tests', status: 'pending' }]
+    const messages = [
+      { id: 'message-1', role: 'user' as const, content: 'First task', agent_id: 'main' },
+      { id: 'message-2', role: 'tool' as const, content: 'Plan updated.', agent_id: 'main', tool_name: 'update_plan', status: 'completed', tool_finished: true, arguments: { plan: earlier } },
+      { id: 'message-3', role: 'user' as const, content: 'Next task', agent_id: 'main' },
+      { id: 'message-4', role: 'tool' as const, content: 'Plan updated.', agent_id: 'main', tool_name: 'update_plan', status: 'completed', tool_finished: true, arguments: { plan: current } },
+      { id: 'message-5', role: 'tool' as const, content: '', agent_id: 'main', tool_name: 'update_plan', status: 'completed', tool_finished: false, arguments: { plan: earlier } }
+    ]
+    const snapshot: SessionSnapshot = { session: { ...session, status: 'idle' }, messages, approvals: [], sequence: 0 }
+    const restored = applySnapshot(snapshot)
+    expect(restored.activeTurnId).toBe('history:session-a:message-3')
+    expect(restored.plan).toEqual([{ description: 'Check tests', status: 'pending' }])
+    expect(restored.plansByTurn['history:session-a:message-1']).toEqual([{ description: 'Read files', status: 'completed' }])
+    expect(restored.messages.at(-1)?.status).toBe('cancelled')
+    expect(applySnapshot(snapshot).plansByTurn).toEqual(restored.plansByTurn)
+    expect(snapshot.messages[0].turn_id).toBeUndefined()
+  })
+
   it('treats main as the root agent and consumes its optimistic user message', () => {
     const initial = { ...emptyConversation(), summary: session, messages: [{ id: 'local', role: 'user' as const, content: 'hello', status: 'sending' }] }
     const started = applyEvent(initial, event('TurnStarted', 1, { task: 'hello' }))
