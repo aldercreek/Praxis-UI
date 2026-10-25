@@ -301,6 +301,7 @@ test('tool activity stays compact while details, errors and live output remain a
   expect(overflow).toBe(false)
   await page.screenshot({ animations: 'disabled', path: 'test-results/execution-polish/tools-compact.png' })
 
+  await openGroupFor(shell)
   await shell.locator(':scope > summary').click()
   await page.locator('.transcript').evaluate(element => { element.scrollTop = 0 })
   await expect(page.getByRole('button', { name: '回到最新消息' })).toBeVisible()

@@ -87,6 +87,9 @@ kbd { font-family: inherit; font-size: var(--text-caption); color: var(--muted);
 .session-list { overflow-y: auto; min-height: 0; padding-bottom: 16px; }
 .session-item { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 32px; text-align: left; border: 0; border-radius: 8px; background: transparent; padding: 6px 10px; margin: 2px 0; font-size: var(--text-label); }
 .session-item > span:not(.session-dot) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.session-label { display: flex; flex-direction: column; gap: 2px; }
+.session-label > span { overflow: hidden; text-overflow: ellipsis; }
+.session-label > small { overflow: hidden; text-overflow: ellipsis; font-size: var(--text-caption); font-weight: 400; color: var(--muted); }
 .session-item > svg { color: var(--muted); }
 .session-item:hover { background: var(--hover); }
 .session-item.selected { background: var(--selected); color: var(--ink); font-weight: 500; }

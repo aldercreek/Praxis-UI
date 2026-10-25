@@ -211,7 +211,7 @@ function dispatch(request) {
   const reply = result => output({ id, result })
   const s = sessions.get(p.session_id)
   if (method === 'initialize') return reply({ protocol_version: 1, model: 'test-model', configured: true, bypass_approvals: bypass })
-  if (method === 'session.list') return reply({ sessions: [...sessions.values()].filter(s => s.workspace === p.workspace).map(summary) })
+  if (method === 'session.list') return reply({ sessions: [...sessions.values()].filter(s => !p.workspace || s.workspace === p.workspace).map(summary) })
   if (method === 'session.create') {
     const s = { id: `session-${++count}`, title: '', workspace: p.workspace, updated_at: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sequence: 0, turn: '', timer: null }
     sessions.set(s.id, s)

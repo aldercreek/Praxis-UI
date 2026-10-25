@@ -73,6 +73,8 @@ Closing the desktop disconnects the client. **Use Stop to cancel a turn.** The s
 
 To share sessions, use the same `PRAXIS_DATA_DIR` as the terminal. It defaults to `~/.praxis`. `PRAXIS_UI_DATA_DIR` controls desktop preferences separately and does not select a different backend.
 
+The sidebar lists chats from all working directories and labels each with its workspace. It refreshes every two seconds while connected and when the window regains focus, so chats created in a terminal appear automatically. The directory picker sets the default for new chats; existing chats and their file previews retain their original workspace.
+
 When opening a conversation, the client subscribes before requesting a snapshot, then combines it with newer events. React acknowledges sequences after applying state. A disconnected stream reconnects from that acknowledgement; event replay updates the interface without resubmitting instructions or rerunning tools.
 
 ## Configuration
@@ -98,7 +100,7 @@ npm run test:e2e         # Electron workflow tests; build first
 npm run test:integration # Desktop client against the real Python service
 ```
 
-The integration test expects a sibling `Praxis/.venv`; override it with `PRAXIS_PATH` and `PRAXIS_PYTHON`. It exercises the actual Python service and SQLite with an offline model substitute. Electron tests use isolated profiles and a deterministic HTTP/SSE fixture. Neither suite calls a paid model.
+The integration test and the shared-service Electron test expect a sibling `Praxis/.venv`; override it with `PRAXIS_PATH` and `PRAXIS_PYTHON`. They exercise the actual Python service and SQLite with an offline model substitute, including saved history, external session creation, switching conversations, and workspace-specific file previews. Other Electron tests use a deterministic HTTP/SSE fixture. All tests use isolated data and profiles; none calls a paid model.
 
 | Module | Responsibility |
 | --- | --- |

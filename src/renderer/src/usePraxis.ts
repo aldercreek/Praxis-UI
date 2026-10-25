@@ -21,30 +21,41 @@ export function usePraxis() {
   const conversationsRef = useRef(conversations)
   const snapshots = useRef(new Map<string, { events: PraxisEvent[]; generation: number }>())
   const connectionGeneration = useRef(0)
-  const refreshGeneration = useRef(0)
+  const refreshing = useRef(false)
   conversationsRef.current = conversations
   useEffect(() => {
     for (const [id, conversation] of Object.entries(conversations)) api?.acknowledge(id, conversation.sequence)
   }, [api, conversations])
 
-  const refresh = useCallback(async (selectedWorkspace = workspaceRef.current) => {
-    if (!api) return
-    const generation = ++refreshGeneration.current
-    setListing(true)
+  const refresh = useCallback(async (quiet = false) => {
+    if (!api || refreshing.current) return
+    refreshing.current = true
+    const generation = connectionGeneration.current
+    const before = conversationsRef.current
+    if (!quiet) setListing(true)
     try {
-      const initialized = await api.request<{ model: string; configured: boolean }>('initialize')
-      setConfigured(initialized.configured)
-      const result = await api.request<{ sessions: SessionSummary[] }>('session.list', { workspace: selectedWorkspace })
-      if (generation !== refreshGeneration.current) return
+      if (!quiet) {
+        const initialized = await api.request<{ model: string; configured: boolean }>('initialize')
+        if (generation !== connectionGeneration.current) return
+        setConfigured(initialized.configured)
+      }
+      const result = await api.request<{ sessions: SessionSummary[] }>('session.list')
+      if (generation !== connectionGeneration.current) return
       setConversations(previous => {
         const next = { ...previous }
-        for (const session of result.sessions) next[session.id] = { ...(next[session.id] || emptyConversation()), summary: session }
+        for (const session of result.sessions) {
+          const conversation = next[session.id] || emptyConversation()
+          // A list response must not undo newer SSE state received during the request.
+          if (conversation.sequence > (before[session.id]?.sequence || 0)) continue
+          next[session.id] = { ...conversation, summary: session }
+        }
         return next
       })
     } catch (error) {
-      if (generation === refreshGeneration.current) setError(errorMessage(error))
+      if (!quiet && generation === connectionGeneration.current) setError(errorMessage(error))
     } finally {
-      if (generation === refreshGeneration.current) setListing(false)
+      refreshing.current = false
+      if (!quiet) setListing(false)
     }
   }, [api])
 
@@ -64,7 +75,9 @@ export function usePraxis() {
       const resumed = previousConnection === 'reconnecting'
       previousConnection = status.state
       setConnection(status)
-      if (status.state === 'connected' && !resumed) {
+      if (status.state === 'connected' && resumed) {
+        void refresh(true)
+      } else if (status.state === 'connected') {
         connectionGeneration.current += 1
         snapshots.current.clear()
         setLoadingSession(null)
@@ -87,10 +100,19 @@ export function usePraxis() {
       previousConnection = value.connection.state
       workspaceRef.current = value.settings.workspace
       setWorkspace(value.settings.workspace)
-      if (value.connection.state === 'connected') void refresh(value.settings.workspace)
+      if (value.connection.state === 'connected') void refresh()
     }).catch(error => setError(errorMessage(error)))
     return () => { offEvent(); offConnection() }
   }, [api, refresh])
+
+  useEffect(() => {
+    if (connection.state !== 'connected') return
+    // Per-session SSE cannot announce a session that this desktop has never opened.
+    const update = () => { void refresh(true) }
+    const timer = window.setInterval(update, 2000)
+    window.addEventListener('focus', update)
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', update) }
+  }, [connection.state, refresh])
 
   const openSession = useCallback(async (sessionId: string) => {
     setActiveId(sessionId)
@@ -132,7 +154,7 @@ export function usePraxis() {
       workspaceRef.current = selected
       setWorkspace(selected)
       newChat()
-      await refresh(selected)
+      await refresh()
     } catch (error) { setError(errorMessage(error)) }
   }, [api, newChat, refresh])
 
@@ -230,11 +252,10 @@ export function usePraxis() {
       setConversations(previous => Object.fromEntries(Object.entries(previous).map(([id, conversation]) => [id, { ...conversation, loaded: false }])))
       setActiveId(null)
     }
-    if (nextInfo.connection.state === 'connected') await refresh(nextInfo.settings.workspace)
+    if (nextInfo.connection.state === 'connected') await refresh()
   }, [api, newChat, refresh])
 
   const sessions = Object.values(conversations).flatMap(conversation => conversation.summary ? [conversation.summary] : [])
-    .filter(session => !workspace || session.workspace.replaceAll('\\', '/').toLowerCase() === workspace.replaceAll('\\', '/').toLowerCase())
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
 
   return {

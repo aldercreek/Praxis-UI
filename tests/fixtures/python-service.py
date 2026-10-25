@@ -1,11 +1,16 @@
 """Real Praxis service and Agent with a deterministic, offline model."""
+import json
+import os
+from pathlib import Path
 from threading import Event
 
 from praxis_agent.agent import Agent
 from praxis_agent.execution import current_handle
 from praxis_agent.model import ModelResponse
+from praxis_agent.planning import RunState
 from praxis_agent.service import __main__ as service
 from praxis_agent.service.manager import SessionManager
+from praxis_agent.sessions import SQLiteSessionStore
 from praxis_agent.tools import create_default_registry
 
 
@@ -36,6 +41,24 @@ def factory(workspace, **options):
     agent.restore_history(store.load_conversation_items(session_id))
     return agent
 
+
+if os.environ.get("PRAXIS_TEST_SEED_HISTORY") == "1":
+    directory = Path(os.environ["PRAXIS_DATA_DIR"])
+    store = SQLiteSessionStore(directory / "state.sqlite3")
+    for name in ("alpha", "beta"):
+        workspace = directory.parent / name
+        workspace.mkdir()
+        (workspace / "notes.md").write_text(f"# Notes from {name}\n", encoding="utf-8")
+        sid = store.create_session(workspace, "offline").id
+        state = RunState(f"Saved question {name}")
+        store.start_run(sid, name, state, {"role": "user", "content": state.original_task})
+        store.append_response_items(sid, name, [
+            {"type": "function_call", "call_id": f"read-{name}", "name": "read_file", "arguments": '{"relative_path":"notes.md"}'},
+            {"type": "function_call_output", "call_id": f"read-{name}", "output": json.dumps({"success": True, "output": f"Saved tool result {name}"})},
+            {"role": "assistant", "content": f"Saved answer {name}. [Notes](notes.md)"},
+        ])
+        state.complete()
+        store.finish_run(sid, name, state)
 
 service.SessionManager = lambda store: SessionManager(store, agent_factory=factory)
 service.main()

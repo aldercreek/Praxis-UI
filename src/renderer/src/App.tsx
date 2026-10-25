@@ -183,19 +183,19 @@ function ApprovalPrompt({ approval, onRespond }: { approval: Approval; onRespond
 
 function Sidebar({ praxis, openSettings, collapsed, toggleSidebar }: { praxis: Praxis; openSettings: () => void; collapsed: boolean; toggleSidebar: () => void }) {
   const [query, setQuery] = useState('')
-  const sessions = praxis.sessions.filter(session => session.title.toLowerCase().includes(query.toLowerCase()))
+  const sessions = praxis.sessions.filter(session => `${session.title} ${session.workspace}`.toLowerCase().includes(query.toLowerCase()))
   return <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="Session navigation">
     <div className="brand-row"><span className="brand"><span className="brand-symbol"><PraxisMark small /></span>Praxis</span><IconButton label="Collapse sidebar" onClick={toggleSidebar}><PanelLeft size={16} /></IconButton></div>
     <div className="sidebar-content">
-      <button type="button" className="workspace-picker" onClick={() => void praxis.chooseWorkspace()} title={praxis.workspace || 'Choose working directory'} disabled={!praxis.api}><Folder size={16} /><span>{praxis.workspace ? baseName(praxis.workspace) : 'Choose working directory'}</span><ChevronDown size={13} /></button>
+      <button type="button" className="workspace-picker" onClick={() => void praxis.chooseWorkspace()} title={`Default directory for new chats: ${praxis.workspace || 'Choose working directory'}`} disabled={!praxis.api}><Folder size={16} /><span>{praxis.workspace ? baseName(praxis.workspace) : 'Choose working directory'}</span><ChevronDown size={13} /></button>
       <button type="button" className="new-chat" onClick={praxis.newChat}><Plus size={16} /><span>New chat</span><kbd>Ctrl N</kbd></button>
       <label className="session-search"><Search size={14} /><input aria-label="Search chats" placeholder="Search chats" value={query} onChange={event => setQuery(event.target.value)} />{query && <IconButton label="Clear search" onClick={() => setQuery('')}><X size={12} /></IconButton>}</label>
-      <div className="sidebar-section-label">Recent chats</div>
+      <div className="sidebar-section-label">Recent chats · All workspaces</div>
       <div className="session-list">
         {praxis.listing && sessions.length === 0 ? <div className="session-skeleton" aria-label="Loading chats"><i /><i /><i /></div> : sessions.length === 0 ? <div className="sidebar-empty">{query ? 'No matching chats' : 'Your conversations will appear here.'}</div> : sessions.map(session => {
           const pendingApproval = praxis.conversations[session.id]?.approvals.length > 0
-          return <button key={session.id} type="button" className={`session-item ${session.id === praxis.activeId ? 'selected' : ''}`} aria-current={session.id === praxis.activeId ? 'page' : undefined} onClick={() => void praxis.openSession(session.id)} title={session.title}>
-            <span>{session.title || 'New chat'}</span>
+          return <button key={session.id} type="button" className={`session-item ${session.id === praxis.activeId ? 'selected' : ''}`} aria-current={session.id === praxis.activeId ? 'page' : undefined} onClick={() => void praxis.openSession(session.id)} title={`${session.title || 'New chat'}\n${session.workspace}`}>
+            <span className="session-label"><span>{session.title || 'New chat'}</span><small>{baseName(session.workspace)}</small></span>
             {isBusy(session.status) && <span className={`session-dot ${pendingApproval ? 'approval-dot' : ''}`} aria-label={pendingApproval ? 'Awaiting approval' : 'Running'} />}
             {session.status === 'failed' && <CircleAlert size={12} className="error-text" />}
           </button>
