@@ -1,0 +1,55 @@
+tests/fixtures/ui-server.cjs
+  s_abc0052df0c3e8::t_62c206572e112f 314-318
+src/renderer/src/conversationNavigation.test.ts
+  s_abc0052df0c3e8::t_84e753ac8ce8c9 1-41
+src/renderer/src/App.tsx
+  s_abc0052df0c3e8::t_84e753ac8ce8c9 160,413,426
+  s_da4263abd40288::t_11f9ebd50b3248 200
+  s_abc0052df0c3e8::t_6c4bbdf5fad687 470-471
+tests/e2e/desktop.spec.ts
+  s_abc0052df0c3e8::t_b7c0c864820016 159-160
+  s_abc0052df0c3e8::t_62c206572e112f 144-145,147-156,161-165,167-178,180-187,190-196,198-205,208-220
+  s_abc0052df0c3e8::t_7494f690a9d32c 146,157-158,188-189,206-207
+src/renderer/src/styles.css
+  s_abc0052df0c3e8::t_7494f690a9d32c 112-116,348,350,352,355
+  s_abc0052df0c3e8::t_84e753ac8ce8c9 345-346,349,351,353-354,356-363
+  s_abc0052df0c3e8::t_b7c0c864820016 344
+  s_abc0052df0c3e8::t_794c6091c76f1b 343,347
+src/renderer/src/mcpStatus.css
+  s_da4263abd40288::t_dc2782b6cd2529 1-7,9-11,13-24
+  s_da4263abd40288::t_e807e9fd2f90ae 8,12
+src/renderer/src/conversationNavigation.ts
+  s_abc0052df0c3e8::t_fa746512ce8b6f 1-53
+src/renderer/src/McpStatusDialog.tsx
+  s_da4263abd40288::t_d9bf539642440a 1-64
+src/renderer/src/ConversationRail.tsx
+  s_abc0052df0c3e8::t_b7c0c864820016 128
+  s_abc0052df0c3e8::t_b2119f793890e2 40,74
+  s_abc0052df0c3e8::t_fa746512ce8b6f 1,3-27,29-39,41-73,75,77-125,129-133,135-148,150-177
+  s_abc0052df0c3e8::t_f55a683e1b727c 76,134
+  s_abc0052df0c3e8::t_7494f690a9d32c 2,28,126-127,149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.51-trip",
+  "base_commit_sha": "6304a8391df7e0325e779c1712371589558de61e",
+  "prompts": {},
+  "sessions": {
+    "s_abc0052df0c3e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a156f3-2d77-7d52-9689-8c8dfc80dd8f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    },
+    "s_da4263abd40288": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17135-e366-75a1-bfc8-4f1cd0fdd2e7",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    }
+  }
+}
