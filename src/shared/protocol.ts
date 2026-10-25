@@ -1,5 +1,12 @@
 export type SessionStatus = 'idle' | 'running' | 'stopping' | 'failed' | 'cancelled'
 
+export interface McpServerStatus {
+  name: string
+  state: 'disabled' | 'queued' | 'connecting' | 'retrying' | 'connected' | 'failed' | 'disconnected'
+}
+
+export interface McpStatus { servers: McpServerStatus[] }
+
 export interface SessionSummary {
   id: string
   title: string

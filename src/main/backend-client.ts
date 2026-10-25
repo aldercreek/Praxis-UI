@@ -116,6 +116,7 @@ export class BackendClient extends EventEmitter {
     let result: unknown
     switch (method) {
       case 'initialize': result = await this.http('GET', '/api/health'); break
+      case 'mcp.status': result = await this.http('GET', '/api/mcp/servers'); break
       case 'settings.update': result = await this.http('PUT', '/api/settings', params); break
       case 'session.list': {
         const listed = await this.http<{ sessions: SessionSummary[] }>('GET', '/api/sessions?' + new URLSearchParams(params as Record<string, string>))

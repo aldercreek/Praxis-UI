@@ -311,6 +311,11 @@ function dispatch(request) {
       output({ id: pendingId, error: { code: 'fixture_rejection', message: '测试延迟发送失败，请重试。' } })
       return reply({ released: true })
     }
+    if (Array.isArray(p.test_history)) {
+      s.messages = p.test_history
+      s.status = 'idle'
+      return reply({ restored: true })
+    }
     if (Array.isArray(p.test_events)) {
       if (!s) return output({ id, error: { code: 'missing', message: 'Test session not found' } })
       for (const frame of p.test_events) {
@@ -345,11 +350,23 @@ function dispatch(request) {
   }
   output({ id, error: { code: 'method_not_found', message: method } })
 }
+let mcpScenario = 'normal'
 const server = http.createServer(async (req, res) => {
   if (req.headers.authorization !== `Bearer ${token}`) { res.writeHead(401); res.end('{}'); return }
   const url = new URL(req.url, 'http://127.0.0.1')
   const parts = url.pathname.split('/').filter(Boolean)
-  if (url.pathname === '/api/health') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ service: 'praxis', instance_id: instance, protocol_version: 1, ready: true, model: 'test-model', configured: true, bypass_approvals: bypass })); return }
+  if (url.pathname === '/__mcp-test') { mcpScenario = url.searchParams.get('scenario'); res.end('{}'); return }
+  if (url.pathname === '/api/mcp/servers') {
+    res.setHeader('Content-Type', 'application/json')
+    if (mcpScenario.endsWith('error')) { res.writeHead(503); res.end(JSON.stringify({ error: { message: 'MCP status unavailable' } })); return }
+    if (mcpScenario.endsWith('empty')) { res.end(JSON.stringify({ servers: [] })); return }
+    res.end(JSON.stringify({ servers: [
+      { name: '数据库', state: 'connected' }, { name: '浏览器', state: 'connecting' },
+      { name: '代码搜索', state: 'retrying' }, { name: '文档服务', state: 'disabled' }
+    ] }))
+    return
+  }
+  if (url.pathname === '/api/health') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ service: 'praxis', instance_id: instance, protocol_version: 1, ready: true, model: 'test-model', configured: !mcpScenario.startsWith('no-model'), bypass_approvals: bypass })); return }
   if (url.pathname === '/__shutdown') { res.end('{}'); setTimeout(() => process.exit(0), 20); return }
   if (parts[3] === 'events') {
     let cursor = Number(url.searchParams.get('after') || 0)

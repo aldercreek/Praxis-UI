@@ -1,6 +1,6 @@
 import { stopFixtureService } from './service-fixture'
 import { test, expect, _electron as electron, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -48,6 +48,48 @@ test.afterEach(async () => {
   }
   expect(visibility).toEqual({ visible: false, showCount: 0 })
   expect(errors).toEqual([])
+})
+
+test('/mcp shows only service names and states without creating a chat or model input', async () => {
+  const before = await page.evaluate(() => window.praxis.request('session.list'))
+  await send('/mcp')
+  const dialog = page.getByRole('dialog', { name: 'MCP 服务' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.locator('li')).toHaveText(['数据库已连接', '浏览器连接中', '代码搜索等待重试', '文档服务已禁用'])
+  await expect(dialog).not.toContainText(/工具|1\s*\/\s*3/)
+  await dialog.getByRole('button', { name: '刷新' }).click()
+  await expect(dialog.getByRole('button', { name: '刷新' })).toBeEnabled()
+  expect(await page.evaluate(() => window.praxis.request('session.list'))).toEqual(before)
+  await page.screenshot({ path: 'test-results/mcp-status.png', animations: 'disabled' })
+  await page.keyboard.press('Escape')
+  await expect(dialog).not.toBeVisible()
+  await expect(page.locator('textarea')).toBeFocused()
+
+  const id = await startControlledTurn('MCP 状态查询')
+  const snapshot = await page.evaluate(id => window.praxis.request('session.open', { session_id: id }), id)
+  await send('/MCP')
+  await expect(dialog).toBeVisible()
+  expect(await page.evaluate(id => window.praxis.request('session.open', { session_id: id }), id)).toEqual(snapshot)
+  await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+})
+
+test('/mcp handles an empty configuration, request failure, refresh and a missing model key', async () => {
+  const directory = join(profile, 'service')
+  const record = JSON.parse(await readFile(join(directory, 'service.json'), 'utf8'))
+  const token = (await readFile(join(directory, 'service.token'), 'utf8')).trim()
+  const scenario = (mode: string) => fetch(`http://127.0.0.1:${record.port}/__mcp-test?scenario=${mode}`, { headers: { Authorization: `Bearer ${token}` } })
+  expect((await scenario('no-model-error')).ok).toBe(true)
+  await page.reload()
+  await expect(page.getByText('No model API key configured.', { exact: false })).toBeVisible()
+  await send('/mcp')
+  const dialog = page.getByRole('dialog', { name: 'MCP 服务' })
+  await expect(dialog.getByRole('alert')).toContainText('MCP status unavailable')
+  expect((await scenario('no-model-empty')).ok).toBe(true)
+  await dialog.getByRole('button', { name: '刷新' }).click()
+  await expect(dialog).toContainText('未配置 MCP 服务')
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await expect(page.locator('.user-content')).toHaveCount(0)
 })
 
 async function send(text: string): Promise<void> {
@@ -98,6 +140,84 @@ async function openGroupFor(tool: Locator): Promise<void> {
   const group = tool.locator('xpath=ancestor::details[contains(concat(" ", normalize-space(@class), " "), " tool-group ")][1]')
   if (!await group.evaluate(element => (element as HTMLDetailsElement).open)) await group.locator(':scope > summary').click()
 }
+
+test('conversation navigation previews, jumps, scrolls independently and persists colored bookmarks', async () => {
+  const sessionId = await startControlledTurn('对话导航验收')
+  const history = Array.from({ length: 100 }, (_, index) => [
+    { id: `saved-user-${index}`, role: 'user', turn_id: `saved-turn-${index}`, content: `第 ${index + 1} 个问题：检查桌面会话的展示细节` },
+    { id: `saved-answer-${index}`, role: 'assistant', turn_id: `saved-turn-${index}`, content: `第 ${index + 1} 个回答：已检查工具聚合、字体与间距。这里保留这段对话的结果摘要，方便快速找到之前的讨论。`, status: 'completed' }
+  ]).flat()
+  await page.evaluate(({ sessionId, history }) => window.praxis.request('input.submit', { session_id: sessionId, test_history: history }), { sessionId, history })
+  await page.reload()
+  await page.locator('.session-item').filter({ hasText: '对话导航验收' }).click()
+  const rail = page.getByRole('navigation', { name: '对话导航' })
+  const ticks = rail.locator('.conversation-tick')
+  const list = rail.locator('.conversation-rail-list')
+  const transcript = page.locator('.transcript')
+  await expect(ticks).toHaveCount(100)
+  await expect(ticks.last()).toHaveAttribute('aria-current', 'location')
+  expect((await rail.boundingBox())!.height).toBeLessThanOrEqual(320)
+  expect(await list.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+  const readingPosition = await transcript.evaluate(element => element.scrollTop)
+  await list.hover()
+  await page.mouse.wheel(0, -2000)
+  await expect.poll(() => list.evaluate(element => element.scrollTop)).toBe(0)
+  expect(await transcript.evaluate(element => element.scrollTop)).toBe(readingPosition)
+
+  await ticks.first().hover()
+  const preview = page.getByRole('dialog', { name: '对话预览' })
+  await expect(preview).toContainText('第 1 个问题')
+  await expect(preview).toContainText('第 1 个回答')
+  const beforeColor = await ticks.first().locator('span').evaluate(element => getComputedStyle(element).backgroundColor)
+  await preview.getByRole('button', { name: '标记这段对话', exact: true }).click()
+  await expect(preview.getByRole('button', { name: '取消标记', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(ticks.first()).toHaveAttribute('data-bookmarked', 'true')
+  expect(await ticks.first().locator('span').evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(beforeColor)
+  expect(await ticks.first().evaluate(element => getComputedStyle(element, '::after').content)).toBe('none')
+  expect(await transcript.evaluate(element => element.scrollTop)).toBe(readingPosition)
+  await page.screenshot({ animations: 'disabled', path: 'test-results/conversation-navigation/bookmarked-preview.png' })
+
+  await page.keyboard.press('Escape')
+  await expect(preview).not.toBeVisible()
+  await ticks.first().click()
+  await expect.poll(() => transcript.evaluate(element => element.scrollTop)).toBeLessThan(30)
+  await expect(ticks.first()).toHaveAttribute('aria-current', 'location')
+  await ticks.first().focus()
+  await page.keyboard.press('End')
+  await expect(ticks.last()).toBeFocused()
+  await expect(preview).toContainText('第 100 个问题')
+  await page.keyboard.press('Tab')
+  await expect(preview.getByRole('button', { name: '标记这段对话', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(ticks.last()).toHaveAttribute('data-bookmarked', 'true')
+  await page.keyboard.press('Escape')
+  await expect(ticks.last()).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect.poll(() => transcript.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThan(2)
+
+  await page.getByRole('button', { name: 'New chat' }).first().click()
+  await expect(rail).toHaveCount(0)
+  await send('第二个会话：导航标记隔离')
+  await expect(page.getByText('已完成这条独立会话中的任务。')).toBeVisible()
+  await expect(ticks).toHaveCount(1)
+  await expect(ticks.first()).toHaveAttribute('data-bookmarked', 'false')
+  await page.reload()
+  await page.locator('.session-item').filter({ hasText: '对话导航验收' }).click()
+  await expect(ticks).toHaveCount(100)
+  await expect(ticks.first()).toHaveAttribute('data-bookmarked', 'true')
+  await expect(ticks.last()).toHaveAttribute('data-bookmarked', 'true')
+  await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(800, 640))
+  await ticks.last().hover()
+  await expect(preview).toBeVisible()
+  const bounds = (await preview.boundingBox())!
+  expect(bounds.x).toBeGreaterThanOrEqual(0)
+  expect(bounds.y).toBeGreaterThanOrEqual(0)
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(await page.evaluate(() => innerHeight))
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+  await preview.getByRole('button', { name: '取消标记', exact: true }).click()
+  await expect(ticks.last()).toHaveAttribute('data-bookmarked', 'false')
+  await page.screenshot({ animations: 'disabled', path: 'test-results/conversation-navigation/compact.png' })
+})
 
 test('concurrent conversations keep streams isolated; supplementary input and stop stay responsive', async () => {
   await expect(page.getByRole('heading', { name: 'Praxis', exact: true })).toBeVisible()

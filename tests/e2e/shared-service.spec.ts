@@ -33,6 +33,11 @@ test.beforeEach(async () => {
   const dataDir = join(profile, 'service')
   const workspace = join(profile, 'desktop-workspace')
   await mkdir(workspace)
+  await mkdir(dataDir)
+  await writeFile(join(dataDir, 'mcp.json'), JSON.stringify({ servers: {
+    '离线工具': { command: python, args: [resolve('tests/fixtures/mcp-server.py')] },
+    '文档服务': { enabled: false }
+  } }))
   await writeFile(join(profile, 'settings.json'), JSON.stringify({ praxisPath: repository, pythonPath: python, workspace }))
   const env = { ...process.env, PRAXIS_DATA_DIR: dataDir, PYTHONPATH: join(repository, 'src'), ADA_API_KEY: 'offline', ADA_MODEL: 'offline', PRAXIS_BYPASS_APPROVALS: '0' }
   service = spawn(python, [resolve('tests/fixtures/python-service.py'), '--data-dir', dataDir], {
@@ -73,6 +78,16 @@ test.afterEach(async () => {
 })
 
 test('restores saved chats and discovers other clients across workspaces without losing live state', async () => {
+  // MCP starts before any session Agent exists, using the actual stdio transport.
+  await expect.poll(() => request('/api/mcp/servers')).toEqual({ servers: [
+    { name: '离线工具', state: 'connected' }, { name: '文档服务', state: 'disabled' }
+  ] })
+  await page.locator('textarea').fill('/mcp')
+  await page.locator('textarea').press('Enter')
+  const mcp = page.getByRole('dialog', { name: 'MCP 服务' })
+  await expect(mcp.locator('li')).toHaveText(['离线工具已连接', '文档服务已禁用'])
+  await mcp.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(page.locator('.session-item')).toHaveCount(2)
   const alpha = page.locator('.session-item').filter({ hasText: 'Saved question alpha' })
   const beta = page.locator('.session-item').filter({ hasText: 'Saved question beta' })
   await alpha.click()

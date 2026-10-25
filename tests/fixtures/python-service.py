@@ -60,5 +60,5 @@ if os.environ.get("PRAXIS_TEST_SEED_HISTORY") == "1":
         state.complete()
         store.finish_run(sid, name, state)
 
-service.SessionManager = lambda store: SessionManager(store, agent_factory=factory)
+service.SessionManager = lambda store, **options: SessionManager(store, agent_factory=factory, **options)
 service.main()

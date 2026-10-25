@@ -28,6 +28,7 @@ async function fixture() {
       return
     }
     res.setHeader('Content-Type', 'application/json')
+    if (url.pathname === '/api/mcp/servers') { res.end(JSON.stringify({ servers: [{ name: 'database', state: 'connected' }] })); return }
     if (url.pathname.endsWith('/health')) { res.end(JSON.stringify({ service: 'praxis', instance_id: 'instance', ready: true, protocol_version: 1, model: 'test', configured: true })); return }
     if (url.pathname.endsWith('/snapshot')) { res.end(JSON.stringify({ session: summary, sequence: journal.length, messages: [], approvals: [], pending_inputs: [] })); return }
     let raw = ''
@@ -130,5 +131,13 @@ describe('shared HTTP and SSE client', () => {
     await expect.poll(() => client.busy).toBe(true)
     server.append({ session: { id: 'S1', active_turn: null, latest_turn: { status: 'completed' } } }, 'SessionUpdated')
     await expect.poll(() => client.busy).toBe(false)
+  })
+
+  it('queries MCP status without opening a session or subscribing to events', async () => {
+    const server = await fixture()
+    const client = await server.connect()
+    await expect(client.request('mcp.status')).resolves.toEqual({ servers: [{ name: 'database', state: 'connected' }] })
+    expect(server.commands).toHaveLength(0)
+    expect(server.streams.size).toBe(0)
   })
 })

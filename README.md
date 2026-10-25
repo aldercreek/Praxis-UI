@@ -25,6 +25,7 @@ Praxis-UI is an Electron client for [Praxis](https://github.com/aldercreek/Praxi
 - **Document previews.** Open text, Markdown, images, and PDFs alongside the conversation; reveal files in your system file manager.
 - **Selection-to-quote input.** Select text from an answer or preview and use it as context in your next instruction.
 - **Automatic reconnect.** Recover missed events from the last applied sequence while keeping the existing conversation on screen.
+- **MCP status.** Type `/mcp` to view configured service names and connection states, with a refresh button. This works without a selected chat or model API key and does not send a model instruction.
 
 ## Get started
 
@@ -73,7 +74,7 @@ Closing the desktop disconnects the client. **Use Stop to cancel a turn.** The s
 
 To share sessions, use the same `PRAXIS_DATA_DIR` as the terminal. It defaults to `~/.praxis`. `PRAXIS_UI_DATA_DIR` controls desktop preferences separately and does not select a different backend.
 
-The sidebar lists chats from all working directories and labels each with its workspace. It refreshes every two seconds while connected and when the window regains focus, so chats created in a terminal appear automatically. The directory picker sets the default for new chats; existing chats and their file previews retain their original workspace.
+The sidebar lists chats from all working directories. It refreshes every two seconds while connected and when the window regains focus, so chats created in a terminal appear automatically. The directory picker sets the default for new chats; existing chats and their file previews retain their original workspace.
 
 When opening a conversation, the client subscribes before requesting a snapshot, then combines it with newer events. React acknowledges sequences after applying state. A disconnected stream reconnects from that acknowledgement; event replay updates the interface without resubmitting instructions or rerunning tools.
 

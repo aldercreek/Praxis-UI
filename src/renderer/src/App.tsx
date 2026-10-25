@@ -14,6 +14,8 @@ import { FilePanel, type PanelTarget } from './FilePanel'
 import { collectTurnChanges, fileChangePreviewPath, type TurnChanges } from './changeSummary'
 import { QuoteSelection, type TextQuote } from './QuoteSelection'
 import { formatQuotedInput, readQuotedInput } from './quotedInput'
+import { McpStatusDialog } from './McpStatusDialog'
+import { ConversationRail } from './ConversationRail'
 
 type Praxis = ReturnType<typeof usePraxis>
 
@@ -155,7 +157,7 @@ const Message = memo(function Message({ message }: { message: DisplayMessage }) 
   </div>
   const deliveryStatus = ['queued', 'sending', 'paused'].includes(message.status || '')
   const quoted = message.role === 'user' ? readQuotedInput(message.content) : undefined
-  return <article className={`message message-${message.role}`} aria-label={message.role === 'user' ? 'Your message' : 'Assistant response'} data-quote-message-id={message.role === 'assistant' && !isChildAgent(message.agent_id) ? message.id : undefined}>
+  return <article className={`message message-${message.role}`} aria-label={message.role === 'user' ? 'Your message' : 'Assistant response'} data-nav-message-id={message.role === 'user' && !isChildAgent(message.agent_id) ? message.id : undefined} tabIndex={message.role === 'user' ? -1 : undefined} data-quote-message-id={message.role === 'assistant' && !isChildAgent(message.agent_id) ? message.id : undefined}>
     {(isChildAgent(message.agent_id) || deliveryStatus) && <div className="message-label">
       {isChildAgent(message.agent_id) && <span>Subtask · {message.agent_id}</span>}
       {message.status === 'queued' && <span className="queued-label">Queued</span>}
@@ -195,7 +197,7 @@ function Sidebar({ praxis, openSettings, collapsed, toggleSidebar }: { praxis: P
         {praxis.listing && sessions.length === 0 ? <div className="session-skeleton" aria-label="Loading chats"><i /><i /><i /></div> : sessions.length === 0 ? <div className="sidebar-empty">{query ? 'No matching chats' : 'Your conversations will appear here.'}</div> : sessions.map(session => {
           const pendingApproval = praxis.conversations[session.id]?.approvals.length > 0
           return <button key={session.id} type="button" className={`session-item ${session.id === praxis.activeId ? 'selected' : ''}`} aria-current={session.id === praxis.activeId ? 'page' : undefined} onClick={() => void praxis.openSession(session.id)} title={`${session.title || 'New chat'}\n${session.workspace}`}>
-            <span className="session-label"><span>{session.title || 'New chat'}</span><small>{baseName(session.workspace)}</small></span>
+            <span>{session.title || 'New chat'}</span>
             {isBusy(session.status) && <span className={`session-dot ${pendingApproval ? 'approval-dot' : ''}`} aria-label={pendingApproval ? 'Awaiting approval' : 'Running'} />}
             {session.status === 'failed' && <CircleAlert size={12} className="error-text" />}
           </button>
@@ -261,6 +263,7 @@ function SettingsDialog({ praxis, open, close }: { praxis: Praxis; open: boolean
 export default function App() {
   const praxis = usePraxis()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [mcpOpen, setMcpOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(window.innerWidth < 900)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [quotes, setQuotes] = useState<Record<string, TextQuote | undefined>>({})
@@ -310,6 +313,8 @@ export default function App() {
   const connected = praxis.connection.state === 'connected'
   const loading = praxis.loadingSession === praxis.activeId && Boolean(praxis.activeId)
   const ready = connected && !loading && praxis.configured !== false
+  const mcpCommand = draft.trim().toLowerCase() === '/mcp'
+  const canSubmit = mcpCommand ? connected : ready && !praxis.sending && !stopping
   const setDraft = (text: string) => setDrafts(previous => ({ ...previous, [draftKey]: text }))
   const syncScrollState = useCallback(() => {
     const container = scrollRef.current
@@ -336,14 +341,14 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n' && !event.shiftKey && !settingsOpen) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n' && !event.shiftKey && !settingsOpen && !mcpOpen) {
         event.preventDefault(); praxis.newChat(); requestAnimationFrame(() => textareaRef.current?.focus())
       }
       if ((event.ctrlKey || event.metaKey) && event.key === ',') { event.preventDefault(); setSettingsOpen(true) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [praxis.newChat, settingsOpen])
+  }, [praxis.newChat, settingsOpen, mcpOpen])
 
   useEffect(() => {
     const textarea = textareaRef.current
@@ -380,7 +385,12 @@ export default function App() {
   }, [syncScrollState])
 
   const submit = async () => {
-    if (!draft.trim() || !ready || praxis.sending || stopping) return
+    if (!draft.trim() || !canSubmit) return
+    if (mcpCommand) {
+      setDraft('')
+      setMcpOpen(true)
+      return
+    }
     const key = draftKey
     const content = draft
     const selectedQuote = quote
@@ -400,6 +410,7 @@ export default function App() {
   const connectionProblem = !connected && praxis.connection.state !== 'connecting'
   const title = active?.summary?.title || 'New chat'
   const empty = !active?.messages.length && !loading && !busy
+  const showNavigation = !loading && Boolean(active?.messages.some(message => message.role === 'user')) && !(panelTarget && compactPanel)
   return <div className={`app ${sidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}>
     <Sidebar praxis={praxis} collapsed={sidebarCollapsed} toggleSidebar={() => setSidebarCollapsed(value => !value)} openSettings={() => setSettingsOpen(true)} />
     <main className="main">
@@ -412,7 +423,7 @@ export default function App() {
 
       {(connectionProblem || praxis.configured === false) && <div className="connection-banner" role="status"><CircleAlert size={16} /><span>{connectionProblem ? praxis.connection.message || 'Unable to connect to local Praxis. Check your runtime settings.' : 'No model API key configured. Add one in Settings or the Praxis environment.'}</span><button type="button" onClick={() => setSettingsOpen(true)}>Open settings</button>{connectionProblem && praxis.api && <button type="button" onClick={() => { void praxis.api.restart().catch(error => praxis.setError(errorMessage(error))) }}>Reconnect</button>}</div>}
 
-      <div className={`workspace-content ${panelTarget ? 'has-panel' : ''}`}>
+      <div className={`workspace-content ${panelTarget ? 'has-panel' : ''} ${showNavigation ? 'has-navigation' : ''}`}>
       <div className={`conversation-body ${empty ? 'is-new' : ''}`} inert={Boolean(panelTarget && compactPanel)}>
       <div className="transcript" ref={scrollRef} onScroll={() => {
         const container = scrollRef.current
@@ -451,15 +462,17 @@ export default function App() {
               <span className="model-name" title={active?.summary?.model || praxis.info?.settings.model || 'Praxis environment settings'}>{active?.summary?.model || praxis.info?.settings.model || 'Default model'}</span>
               {praxis.info?.settings.bypassApprovals && <span className="approval-mode" title="Tools run without approval prompts">Bypass</span>}
             </div>
-            <div className="composer-actions">{busy && <button type="button" className="stop-button" onClick={() => void praxis.stop()} disabled={stopping} title="Stop current task"><Square size={10} fill="currentColor" />{stopping ? 'Stopping' : 'Stop'}</button>}<button className="send-button" type="submit" aria-label={busy ? 'Send follow-up' : 'Send message'} title={busy ? 'Send follow-up' : 'Send message (Enter)'} disabled={!draft.trim() || !ready || praxis.sending || stopping}>{praxis.sending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</button></div>
+            <div className="composer-actions">{busy && <button type="button" className="stop-button" onClick={() => void praxis.stop()} disabled={stopping} title="Stop current task"><Square size={10} fill="currentColor" />{stopping ? 'Stopping' : 'Stop'}</button>}<button className="send-button" type="submit" aria-label={busy ? 'Send follow-up' : 'Send message'} title={busy ? 'Send follow-up' : 'Send message (Enter)'} disabled={!draft.trim() || !canSubmit}>{praxis.sending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</button></div>
           </div>
         </form>
       </div>
       </div>
-      {panelTarget && <FilePanel key={draftKey} target={panelTarget} workspace={workspace} turns={changes} activeTurnId={active?.activeTurnId} onTarget={openPanel} onClose={closePanel} />}
+      {panelTarget && <FilePanel key={`files:${draftKey}`} target={panelTarget} workspace={workspace} turns={changes} activeTurnId={active?.activeTurnId} onTarget={openPanel} onClose={closePanel} />}
+      {showNavigation && active && praxis.activeId && <ConversationRail key={`navigation:${praxis.activeId}`} sessionId={praxis.activeId} messages={active.messages} scrollRef={scrollRef} onNavigate={() => { stickToBottom.current = false }} />}
       </div>
     </main>
-    {!settingsOpen && !praxis.sending && !(panelTarget && compactPanel) && <QuoteSelection rootRef={scrollRef} sessionKey={draftKey} onQuote={addQuote} />}
+    {!settingsOpen && !mcpOpen && !praxis.sending && !(panelTarget && compactPanel) && <QuoteSelection rootRef={scrollRef} sessionKey={draftKey} onQuote={addQuote} />}
     <SettingsDialog praxis={praxis} open={settingsOpen} close={() => setSettingsOpen(false)} />
+    {mcpOpen && <McpStatusDialog close={() => { setMcpOpen(false); requestAnimationFrame(() => textareaRef.current?.focus()) }} />}
   </div>
 }

@@ -23,7 +23,7 @@ if (!hasLock) app.quit()
 app.on('second-instance', () => { if (!testMode) { window?.show(); window?.focus() } })
 
 const methods = new Set([
-  'initialize', 'session.list', 'session.create', 'session.open',
+  'initialize', 'mcp.status', 'session.list', 'session.create', 'session.open',
   'input.submit', 'input.resume', 'input.delete', 'turn.cancel', 'approval.decide'
 ])
 
