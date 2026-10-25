@@ -3,26 +3,28 @@ import { existsSync, statSync } from 'node:fs'
 import { delimiter, join, resolve } from 'node:path'
 import { BackendClient } from './backend-client'
 import { createDiagnosticWriter } from './diagnostics'
+import { LocalFileService } from './local-files'
 import { SettingsStore } from './settings'
-import type { DesktopInfo, DesktopSettings } from '../shared/protocol'
+import type { DesktopInfo, DesktopSettings, FileActionResult } from '../shared/protocol'
 
 const backend = new BackendClient()
 const writeDiagnostic = createDiagnosticWriter(process.stderr)
+const testMode = !app.isPackaged && process.env.PRAXIS_UI_TEST_MODE === '1'
 let window: BrowserWindow | undefined
 let settings: SettingsStore
+let localFiles: LocalFileService
 let quitting = false
-let closeConfirmed = false
 let connecting: Promise<void> | undefined
 let configurationChanges: Promise<void> = Promise.resolve()
 
 if (process.env.PRAXIS_UI_DATA_DIR) app.setPath('userData', resolve(process.env.PRAXIS_UI_DATA_DIR))
 const hasLock = app.requestSingleInstanceLock()
 if (!hasLock) app.quit()
-app.on('second-instance', () => { window?.show(); window?.focus() })
+app.on('second-instance', () => { if (!testMode) { window?.show(); window?.focus() } })
 
 const methods = new Set([
   'initialize', 'session.list', 'session.create', 'session.open',
-  'turn.start', 'turn.input', 'turn.stop', 'approval.respond'
+  'input.submit', 'input.resume', 'input.delete', 'turn.cancel', 'approval.decide'
 ])
 
 function info(): DesktopInfo {
@@ -35,7 +37,7 @@ function assertDirectory(path: string, label: string): void {
 
 function validateEngine(config: DesktopSettings): void {
   assertDirectory(config.praxisPath, 'Praxis directory')
-  if (!existsSync(join(config.praxisPath, 'src', 'praxis_agent', 'desktop', '__main__.py'))) {
+  if (!existsSync(join(config.praxisPath, 'src', 'praxis_agent', 'service', '__main__.py'))) {
     throw new Error('This version of Praxis does not include the desktop service. Choose an updated Praxis project.')
   }
   if (config.pythonPath && (!existsSync(config.pythonPath) || !statSync(config.pythonPath).isFile())) {
@@ -53,15 +55,16 @@ function changeConfiguration<T>(action: () => Promise<T>): Promise<T> {
   return operation
 }
 
-async function startBackend(): Promise<void> {
+async function startBackend(applySettings = false): Promise<void> {
   if (connecting) return connecting
   connecting = (async () => {
     try {
       const config = settings.get()
       const approvalArgs = config.bypassApprovals ? ['--bypass'] : []
-      const testServer = !app.isPackaged && process.env.PRAXIS_UI_TEST_MODE === '1' && process.env.PRAXIS_UI_TEST_SERVER
+      const testServer = testMode && process.env.PRAXIS_UI_TEST_SERVER
       if (testServer) {
         await backend.start({ command: process.execPath, args: [testServer, ...approvalArgs], cwd: app.getAppPath(), env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+        if (applySettings) await backend.request('settings.update', { bypass_approvals: config.bypassApprovals })
         return
       }
       validateEngine(config)
@@ -71,13 +74,22 @@ async function startBackend(): Promise<void> {
         PYTHONIOENCODING: 'utf-8',
         PYTHONPATH: [join(config.praxisPath, 'src'), process.env.PYTHONPATH].filter(Boolean).join(delimiter),
         ADA_API_KEY: settings.getApiKey(),
-        ADA_MODEL: config.model
+        ADA_MODEL: config.model,
+        PRAXIS_BYPASS_APPROVALS: config.bypassApprovals ? '1' : '0'
       }
       delete environment.ELECTRON_RUN_AS_NODE
       if (config.baseUrl) environment.ADA_BASE_URL = config.baseUrl
-      const args = ['-u', '-m', 'praxis_agent.desktop', '--stdio', ...approvalArgs]
-      if (process.env.PRAXIS_UI_DATABASE) args.push('--database', process.env.PRAXIS_UI_DATABASE)
+      const args = ['-u', '-m', 'praxis_agent.service']
+      if (process.env.PRAXIS_DATA_DIR) environment.PRAXIS_DATA_DIR = process.env.PRAXIS_DATA_DIR
       await backend.start({ command: settings.python(), args, cwd: config.praxisPath, env: environment })
+      if (applySettings) {
+        await backend.request('settings.update', { model: config.model, base_url: config.baseUrl,
+          ...(settings.getApiKey() ? { api_key: settings.getApiKey() } : {}), bypass_approvals: config.bypassApprovals })
+      }
+      // Joining an existing service adopts its settings, including while another
+      // terminal is running a turn. Only an explicit settings edit changes them.
+      const shared = await backend.request<{ model: string; base_url?: string; bypass_approvals: boolean }>('initialize')
+      settings.update({ model: shared.model, ...(shared.base_url ? { baseUrl: shared.base_url } : {}), bypassApprovals: shared.bypass_approvals })
     } catch (error) {
       backend.status = { state: 'error', message: error instanceof Error ? error.message : String(error) }
       backend.emit('connection', backend.status)
@@ -92,13 +104,19 @@ function trusted(event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): vo
 }
 
 function registerIPC(): void {
+  ipcMain.on('praxis:ack', (event, sessionId: unknown, sequence: unknown) => {
+    trusted(event)
+    if (typeof sessionId === 'string' && typeof sequence === 'number') backend.acknowledge(sessionId, sequence)
+  })
   ipcMain.handle('praxis:info', event => { trusted(event); return info() })
   ipcMain.handle('praxis:request', async (event, method: unknown, params: unknown = {}) => {
     trusted(event)
     if (typeof method !== 'string' || !methods.has(method)) throw new Error('Unsupported Praxis operation')
     if (!params || typeof params !== 'object' || Array.isArray(params)) throw new Error('Invalid request parameters')
     if (connecting) await connecting
-    return backend.request(method, params as Record<string, unknown>)
+    const result = await backend.request(method, params as Record<string, unknown>)
+    localFiles.rememberBackendResponse(method, result)
+    return result
   })
   ipcMain.handle('praxis:settings', (event, patch: Partial<DesktopSettings> & { apiKey?: string }) => {
     trusted(event)
@@ -111,7 +129,7 @@ function registerIPC(): void {
       if (needsRestart) validateEngine({ ...before, ...patch })
       if (patch.workspace) assertDirectory(patch.workspace, 'Workspace')
       settings.update(patch)
-      if (needsRestart || backend.status.state === 'error') await startBackend()
+      if (needsRestart || backend.status.state === 'error') await startBackend(needsRestart)
       return info()
     })
   })
@@ -144,10 +162,12 @@ function registerIPC(): void {
     const error = await shell.openPath(path)
     if (error) throw new Error(error)
   })
+  ipcMain.handle('praxis:preview-file', (event, reference: unknown) => { trusted(event); return localFiles.preview(reference) })
+  ipcMain.handle('praxis:open-file', (event, reference: unknown) => { trusted(event); return localFiles.open(reference) })
+  ipcMain.handle('praxis:reveal-file', (event, reference: unknown) => { trusted(event); return localFiles.reveal(reference) })
   ipcMain.handle('praxis:restart', event => {
     trusted(event)
     return changeConfiguration(async () => {
-      if (backend.busy) throw new Error('Stop running sessions before reconnecting.')
       await startBackend()
     })
   })
@@ -168,21 +188,14 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true, contextIsolation: true, nodeIntegration: false,
-      webSecurity: true
+      webSecurity: true,
+      ...(testMode ? { backgroundThrottling: false } : {})
     }
   })
-  window.once('ready-to-show', () => window?.show())
+  window.once('ready-to-show', () => { if (!testMode) window?.show() })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
-  window.on('close', event => {
-    if (!backend.busy || quitting || closeConfirmed) return
-    event.preventDefault()
-    void dialog.showMessageBox(window!, {
-      type: 'question', title: 'Quit Praxis', message: 'Tasks are still running',
-      detail: 'Quitting will stop tasks in all sessions.', buttons: ['Keep working', 'Stop and quit'], defaultId: 0, cancelId: 0
-    }).then(result => { if (result.response === 1) { closeConfirmed = true; window?.close() } })
-  })
   window.on('closed', () => { window = undefined })
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) void window.loadURL(process.env.ELECTRON_RENDERER_URL)
   else void window.loadFile(join(__dirname, '../renderer/index.html'))
@@ -191,7 +204,19 @@ function createWindow(): void {
 if (hasLock) void app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId('dev.praxis.desktop')
   settings = new SettingsStore(join(app.getPath('userData'), 'settings.json'), app.getAppPath())
-  backend.on('event', event => { if (!window?.webContents.isDestroyed()) window?.webContents.send('praxis:event', event) })
+  const fileActions: FileActionResult[] = []
+  if (testMode) Object.assign(globalThis, { __praxisFileActions: fileActions })
+  localFiles = new LocalFileService({
+    getWorkspace: () => settings.get().workspace,
+    openPath: path => shell.openPath(path),
+    revealPath: path => shell.showItemInFolder(path),
+    simulateActions: testMode,
+    onAction: testMode ? action => { fileActions.push(action) } : undefined
+  })
+  backend.on('event', event => {
+    localFiles.rememberBackendEvent(event)
+    if (!window?.webContents.isDestroyed()) window?.webContents.send('praxis:event', event)
+  })
   backend.on('connection', status => { if (!window?.webContents.isDestroyed()) window?.webContents.send('praxis:connection', status) })
   backend.on('diagnostic', message => writeDiagnostic(`[Praxis] ${message}`))
   registerIPC()

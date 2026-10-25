@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { DesktopAPI, PraxisEvent, ConnectionStatus } from '../shared/protocol'
 
 const api: DesktopAPI = {
+  acknowledge: (sessionId, sequence) => ipcRenderer.send("praxis:ack", sessionId, sequence),
   getInfo: () => ipcRenderer.invoke('praxis:info'),
   request: (method, params) => ipcRenderer.invoke('praxis:request', method, params),
   onEvent(listener) {
@@ -19,6 +20,9 @@ const api: DesktopAPI = {
   choosePython: () => ipcRenderer.invoke('praxis:choose-python'),
   openExternal: url => ipcRenderer.invoke('praxis:open-external', url),
   openWorkspace: () => ipcRenderer.invoke('praxis:open-workspace'),
+  previewFile: reference => ipcRenderer.invoke('praxis:preview-file', reference),
+  openFile: reference => ipcRenderer.invoke('praxis:open-file', reference),
+  revealFile: reference => ipcRenderer.invoke('praxis:reveal-file', reference),
   restart: () => ipcRenderer.invoke('praxis:restart'),
   windowAction: action => ipcRenderer.send('praxis:window', action)
 }

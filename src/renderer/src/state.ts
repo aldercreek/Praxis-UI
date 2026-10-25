@@ -11,19 +11,30 @@ export interface DisplayMessage extends TranscriptMessage {
 
 export interface PlanStep { description: string; status: string }
 
+export interface TurnExecution {
+  startedAt?: number
+  finishedAt?: number
+  finalMessageId?: string
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+}
+
 export interface Conversation {
   summary?: SessionSummary
   messages: DisplayMessage[]
   approvals: Approval[]
   plan: PlanStep[]
+  plansByTurn: Record<string, PlanStep[]>
+  turnsById: Record<string, TurnExecution>
+  activeTurnId?: string
   sequence: number
   loaded: boolean
   activity: string
+  pendingInputs: { command_id: string; content: string }[]
   pausedInputs: string[]
 }
 
 export function emptyConversation(): Conversation {
-  return { messages: [], approvals: [], plan: [], sequence: 0, loaded: false, activity: '', pausedInputs: [] }
+  return { messages: [], approvals: [], plan: [], plansByTurn: {}, turnsById: {}, sequence: 0, loaded: false, activity: '', pausedInputs: [], pendingInputs: [] }
 }
 
 export const isBusy = (status?: string) => status === 'running' || status === 'stopping'
@@ -38,6 +49,44 @@ const unfinishedToolStatuses = new Set(['running', 'pending', 'approval'])
 const isUnfinishedTool = (message: DisplayMessage) => message.role === 'tool' && (unfinishedToolStatuses.has(message.status || '') || message.status === 'denied' && message.tool_finished === false)
 const isCommand = (message: DisplayMessage) => message.tool_name === 'run_command' || message.tool_name === 'wait_command'
 const isBackgroundCommand = (message: DisplayMessage) => isCommand(message) && message.tool_finished === true && message.status === 'running'
+
+function readPlan(value: unknown): PlanStep[] {
+  if (!Array.isArray(value)) return []
+  return value.map(item => {
+    const step = objectOf(item)
+    return { description: textOf(step.description ?? step.step), status: textOf(step.status) }
+  }).filter(step => step.description)
+}
+
+// Successful plan calls are part of the saved transcript, so the desktop can
+// restore each turn's checklist without extending the backend protocol.
+function restorePlans(messages: DisplayMessage[]): Record<string, PlanStep[]> {
+  const plans: Record<string, PlanStep[]> = {}
+  for (const message of messages) {
+    if (message.tool_name !== 'update_plan' || !message.turn_id || isChildAgent(message.agent_id) || message.tool_finished === false
+      || !['complete', 'completed'].includes(toolStatus(message) || '')) continue
+    const plan = readPlan(message.arguments?.plan)
+    if (plan.length) plans[message.turn_id] = plan
+  }
+  return plans
+}
+
+function updateTurnPlan(conversation: Conversation, turnId: string | undefined, plan: PlanStep[]): void {
+  if (turnId) conversation.plansByTurn = { ...conversation.plansByTurn, [turnId]: plan }
+  if (!conversation.activeTurnId || turnId === conversation.activeTurnId) {
+    conversation.activeTurnId = turnId
+    conversation.plan = plan
+  }
+}
+
+function finishTurn(conversation: Conversation, turnId: string | undefined, status: Exclude<TurnExecution['status'], 'running'>, finalMessageId?: string): void {
+  if (!turnId) return
+  const previous = conversation.turnsById[turnId]
+  conversation.turnsById = {
+    ...conversation.turnsById,
+    [turnId]: { ...previous, status, finishedAt: previous?.finishedAt ?? Date.now(), ...(finalMessageId ? { finalMessageId } : {}) }
+  }
+}
 
 export function toolStatus(message: DisplayMessage): string | undefined {
   const result = message.structured_output
@@ -115,6 +164,8 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
         next.messages = addUserMessage(current.messages, textOf(data.task), event)
         next.pausedInputs = current.pausedInputs.filter(text => text !== textOf(data.task))
         next.plan = []
+        next.activeTurnId = event.turn_id
+        if (event.turn_id) next.turnsById = { ...current.turnsById, [event.turn_id]: { status: 'running', startedAt: Date.now() } }
         next.activity = 'Thinking'
       }
       break
@@ -140,11 +191,15 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
     case 'AssistantTextCompleted': {
       const content = textOf(data.text)
       const recent = [...current.messages].reverse().find(message => message.role === 'assistant' && message.turn_id === event.turn_id && (isChildAgent(message.agent_id) ? message.agent_id : 'main') === agentKey(event))
-      if (content && (!recent || recent.content !== content)) {
-        next.messages = updateMessage(current.messages, recent?.id || assistantKey(event), message => ({
-          ...message, id: recent?.id || assistantKey(event), role: 'assistant', content, turn_id: event.turn_id, agent_id: event.agent_id, child_turn_id: textOf(data.child_turn_id) || undefined, status: 'complete'
+      const finalMessageId = content.trim() ? recent?.id || assistantKey(event) : undefined
+      if (finalMessageId) {
+        next.messages = updateMessage(current.messages, finalMessageId, message => ({
+          ...message, id: finalMessageId, role: 'assistant', content: content || message?.content || '', turn_id: event.turn_id, agent_id: event.agent_id, child_turn_id: textOf(data.child_turn_id) || undefined, status: 'complete'
         }))
       }
+      // ModelRequestCompleted also ends interim responses. Only this root event
+      // confirms which message is the final answer for the whole turn.
+      if (!child) finishTurn(next, event.turn_id, 'completed', finalMessageId)
       break
     }
     case 'ToolCallPrepared':
@@ -173,6 +228,12 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
         const status = toolStatus(finished)
         return { ...finished, status, error: status === 'failed' }
       }))
+      if (!child && toolBase.tool_name === 'update_plan') {
+        const message = next.messages.find(item => item.id === toolBase.id)
+        const plan = readPlan(message?.arguments?.plan)
+        if (message && plan.length && toolStatus(message) === 'complete') updateTurnPlan(next, event.turn_id, plan)
+      }
+      if (!child && next.activity.startsWith('Using ')) next.activity = 'Running'
       break
     }
     case 'ApprovalPending':
@@ -188,7 +249,9 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
       next.messages = updateMessage(current.messages, toolBase.id, message => ({ ...toolBase, ...message, status: data.approved ? 'pending' : 'denied' }))
       break
     case 'PlanUpdated':
-      if (!child && Array.isArray(data.plan)) next.plan = data.plan.map(item => ({ description: textOf(objectOf(item).description ?? objectOf(item).step), status: textOf(objectOf(item).status) }))
+      if (!child && Array.isArray(data.plan)) {
+        updateTurnPlan(next, event.turn_id || current.activeTurnId, readPlan(data.plan))
+      }
       break
     case 'MessagesReceived':
       if (!child && Array.isArray(data.items)) {
@@ -202,10 +265,14 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
       }
       break
     case 'ChildAgentStatus':
-      next.messages = updateMessage(current.messages, `agent:${event.agent_id}`, message => ({ ...message, id: `agent:${event.agent_id}`, role: 'system', content: textOf(data.task_summary) || message?.content || 'Subtask', agent_id: event.agent_id, status: textOf(data.status) }))
+      next.messages = updateMessage(current.messages, `agent:${event.agent_id}`, message => ({ ...message, id: `agent:${event.agent_id}`, role: 'system', content: textOf(data.task_summary) || message?.content || 'Subtask', turn_id: event.turn_id, agent_id: event.agent_id, status: textOf(data.status) }))
       break
     case 'ChildAgentMessage':
       next.messages = [...current.messages, { id: `child-message:${event.sequence}`, role: 'assistant', content: textOf(data.content), agent_id: event.agent_id, turn_id: event.turn_id }]
+      break
+    case 'InputsChanged':
+      next.pendingInputs = (data.inputs || []) as { command_id: string; content: string }[]
+      next.pausedInputs = next.pendingInputs.map(item => item.content)
       break
     case 'InputsPaused':
       next.pausedInputs = Array.isArray(data.texts) ? data.texts.map(textOf) : []
@@ -215,26 +282,34 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
       if (!child) next.activity = data.stage === 'completed' ? 'Thinking' : 'Compacting context'
       break
     case 'TurnFailed':
-      next.messages = [...finalizeMessages(current.messages, event, false, child), { id: `error:${event.turn_id}:${agentKey(event)}`, role: 'system', content: textOf(data.message) || 'Task failed', error: true, agent_id: event.agent_id }]
-      if (!child) next.activity = 'Finishing task'
+      next.messages = [...finalizeMessages(current.messages, event, false, child), { id: `error:${event.turn_id}:${agentKey(event)}`, role: 'system', content: textOf(data.message) || 'Task failed', error: true, turn_id: event.turn_id, agent_id: event.agent_id }]
+      if (!child) {
+        finishTurn(next, event.turn_id, 'failed')
+        next.activity = 'Finishing task'
+      }
       break
     case 'TurnCancelled':
       next.messages = finalizeMessages(current.messages, event, true, true)
       if (!child) {
         if (next.summary) next.summary = { ...next.summary, status: 'stopping' }
-        next.messages = [...next.messages, { id: `cancelled:${event.turn_id}`, role: 'system', content: '已停止', status: 'cancelled' }]
+        next.messages = [...next.messages, { id: `cancelled:${event.turn_id}`, role: 'system', content: '已停止', status: 'cancelled', turn_id: event.turn_id }]
+        finishTurn(next, event.turn_id, 'cancelled')
         next.activity = 'Finishing task'
         next.approvals = []
       }
       break
     case 'TurnCompleted':
       next.messages = finalizeMessages(current.messages, event, false, child)
-      if (!child) next.activity = 'Finishing task'
+      if (!child) {
+        finishTurn(next, event.turn_id, 'completed')
+        next.activity = 'Finishing task'
+      }
       break
     case 'TurnSettled':
       next.messages = finalizeMessages(current.messages, event, true, true)
       if (!child) {
         if (next.summary) next.summary = { ...next.summary, status: data.status === 'cancelled' ? 'cancelled' : data.status === 'failed' ? 'failed' : 'idle' }
+        finishTurn(next, event.turn_id, data.status === 'cancelled' ? 'cancelled' : data.status === 'failed' ? 'failed' : 'completed')
         next.activity = ''
         next.approvals = []
       }
@@ -244,18 +319,36 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
 }
 
 export function applySnapshot(snapshot: SessionSnapshot, buffered: PraxisEvent[] = []): Conversation {
-  const messages = reconcileCommands(snapshot.messages).map(message => {
+  // Cold history contains message IDs but no turn IDs. Use stable user-message
+  // sections for display only; live protocol IDs always take precedence.
+  let historyTurnId = `history:${snapshot.session.id}:start`
+  const history = snapshot.messages.map(message => {
+    if (message.turn_id) {
+      if (!isChildAgent(message.agent_id)) historyTurnId = message.turn_id
+      return message
+    }
+    if (message.role === 'user' && !isChildAgent(message.agent_id)) historyTurnId = `history:${snapshot.session.id}:${message.id}`
+    return { ...message, turn_id: historyTurnId }
+  })
+  const messages = reconcileCommands(history).map(message => {
     if (message.role === 'tool') message = { ...message, status: toolStatus(message) }
+    if (message.role === 'tool' && message.tool_finished === false && ['complete', 'completed'].includes(message.status || '')) {
+      message = { ...message, status: isBusy(snapshot.session.status) ? 'pending' : 'cancelled' }
+    }
     if (isBusy(snapshot.session.status)) return message
     if (isUnfinishedTool(message) && !isBackgroundCommand(message)) return { ...message, status: 'cancelled', error: false }
     if (message.role === 'assistant' && message.status === 'streaming') return { ...message, status: 'complete' }
     return message
   })
+  const activeTurnId = snapshot.session.active_turn?.id || [...messages].reverse().find(message => message.turn_id && !isChildAgent(message.agent_id))?.turn_id
+  const plansByTurn = restorePlans(messages)
   let current: Conversation = {
     ...emptyConversation(), summary: snapshot.session, messages,
+    activeTurnId, plansByTurn, plan: activeTurnId ? plansByTurn[activeTurnId] || [] : [],
     approvals: snapshot.approvals, sequence: snapshot.sequence, loaded: true,
     activity: isBusy(snapshot.session.status) ? 'Running' : '',
-    pausedInputs: (snapshot as SessionSnapshot & { pending_inputs?: string[] }).pending_inputs || []
+    pendingInputs: snapshot.pending_inputs || [],
+    pausedInputs: (snapshot.pending_inputs || []).map(item => item.content)
   }
   for (const event of buffered) current = applyEvent(current, event)
   return current

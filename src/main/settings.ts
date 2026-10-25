@@ -19,7 +19,7 @@ function findPraxisPath(appPath: string): string {
   let directory = appPath
   for (let depth = 0; depth < 6; depth += 1) {
     const candidate = resolve(directory, '..', 'Praxis')
-    if (existsSync(join(candidate, 'src', 'praxis_agent', 'desktop', '__main__.py'))) return candidate
+    if (existsSync(join(candidate, 'src', 'praxis_agent', 'service', '__main__.py'))) return candidate
     const parent = dirname(directory)
     if (parent === directory) break
     directory = parent
