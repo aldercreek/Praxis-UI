@@ -1,0 +1,35 @@
+tests/e2e/shared-service.spec.ts
+  s_da4263abd40288::t_d0624d1294a1ca 1-52,54-87,91-113
+  s_da4263abd40288::t_ac7cddc51e8b10 53,89-90
+  s_da4263abd40288::t_df9cc09d6992ac 88
+src/renderer/src/usePraxis.ts
+  s_da4263abd40288::t_49a855690b3442 24,30-35,37-43,46-51,55,57-58,78-80,103,108-116,157,255
+src/renderer/src/App.tsx
+  s_da4263abd40288::t_49a855690b3442 186,190,193,197-198
+tests/fixtures/python-service.py
+  s_da4263abd40288::t_d0624d1294a1ca 2-4,10,13,45-61
+tests/e2e/desktop.spec.ts
+  s_da4263abd40288::t_c1b4f0105617b9 304
+README.md
+  s_da4263abd40288::t_ebf1ff879fbf87 76-77,103
+src/renderer/src/styles.css
+  s_da4263abd40288::t_49a855690b3442 90-92
+tests/fixtures/ui-server.cjs
+  s_da4263abd40288::t_49a855690b3442 214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.51-trip",
+  "base_commit_sha": "692dd8c24e726133d8f60d7337ac79bd1693b540",
+  "prompts": {},
+  "sessions": {
+    "s_da4263abd40288": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17135-e366-75a1-bfc8-4f1cd0fdd2e7",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    }
+  }
+}
