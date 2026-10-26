@@ -1,0 +1,57 @@
+tests/e2e/desktop.spec.ts
+  s_da4263abd40288::t_1634cb6fabad35 3,12,19,35-37,56-112,114-124
+  s_da4263abd40288::t_75ec043847f045 477
+  s_da4263abd40288::t_8bcbd5e4c8358a 113
+  s_da4263abd40288::t_ceff8754797b70 175-225
+src/renderer/src/styles.css
+  s_da4263abd40288::t_75ec043847f045 100
+  s_da4263abd40288::t_a685d9f9055799 109-110,328-330,333-334
+  s_da4263abd40288::t_fa6e0cb5843938 93-97,99,101-103,105
+  s_da4263abd40288::t_a26d700cc576f9 98,104
+src/main/index.ts
+  s_da4263abd40288::t_c70ba4375d1e0f 26
+src/renderer/src/App.tsx
+  s_da4263abd40288::t_a685d9f9055799 190-195,202-206
+  s_da4263abd40288::t_898391fd14d1fd 425
+  s_da4263abd40288::t_a26d700cc576f9 478
+  s_da4263abd40288::t_fa6e0cb5843938 5,19,187,208,212,276,327-328,353-360,363,370,413-416,440-441
+tests/backend-client.test.ts
+  s_da4263abd40288::t_898391fd14d1fd 16-18,26,37-47,57,70-78,97-140
+README.md
+  s_da4263abd40288::t_898391fd14d1fd 25,80
+tests/e2e/shared-service.spec.ts
+  s_da4263abd40288::t_ceff8754797b70 19,21,129-166
+tests/fixtures/ui-server.cjs
+  s_da4263abd40288::t_ceff8754797b70 358-360,365-374,413-417,463-472
+  s_da4263abd40288::t_d19c289496dda3 412,418-425,427,432-436
+  s_da4263abd40288::t_1634cb6fabad35 4,16-17,30,356-357,375-398
+src/renderer/src/usePraxis.ts
+  s_da4263abd40288::t_c70ba4375d1e0f 20-22,29-40,59-60,64,80,87-88,138,150,181-205,236,287,325-326
+  s_da4263abd40288::t_8bcbd5e4c8358a 50,73
+  s_da4263abd40288::t_a621b66d9111bd 231
+  s_da4263abd40288::t_a685d9f9055799 17,27,47-48,72,74-76,78,100-102,113,130-136,324
+src/renderer/src/DeleteChat.tsx
+  s_da4263abd40288::t_b80f2f8b3cc9f6 7,10,20,29,32,45
+  s_da4263abd40288::t_fa6e0cb5843938 1-6,8-9,11-19,21-28,30-31,33-44,46-48
+src/main/backend-client.ts
+  s_da4263abd40288::t_c70ba4375d1e0f 68,87,114-121,131,133-137,140-145,155-162,166,193-195
+  s_da4263abd40288::t_a621b66d9111bd 154,163-165
+src/main/event-subscription.ts
+  s_da4263abd40288::t_c70ba4375d1e0f 39,59,87-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.51-trip",
+  "base_commit_sha": "999fe15ac4c16660c1b8fca0a3a40a97a9b485a2",
+  "prompts": {},
+  "sessions": {
+    "s_da4263abd40288": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17135-e366-75a1-bfc8-4f1cd0fdd2e7",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    }
+  }
+}
