@@ -13,6 +13,9 @@ async function fixture() {
   const commands: Record<string, unknown>[] = []
   const afters: number[] = []
   let dropInputReply = false
+  let deletedStatus = 0
+  let holdSnapshot = false
+  const snapshots: (() => void)[] = []
   const summary = { id: 'S1', title: 'test', workspace: 'workspace', model: 'test', updated_at: new Date().toISOString(), active_turn: null }
   const server = createServer(async (req, res) => {
     if (req.headers.authorization !== 'Bearer token') { res.writeHead(401); res.end('{}'); return }
@@ -20,6 +23,7 @@ async function fixture() {
     if (url.pathname.endsWith('/events')) {
       const after = Number(url.searchParams.get('after'))
       afters.push(after)
+      if (deletedStatus) { res.writeHead(deletedStatus); res.end('{}'); return }
       res.writeHead(200, { 'Content-Type': 'text/event-stream' })
       res.write('event: ready\ndata: {}\n\n')
       for (const event of journal) if (event.sequence! > after) res.write(encode(event))
@@ -30,7 +34,17 @@ async function fixture() {
     res.setHeader('Content-Type', 'application/json')
     if (url.pathname === '/api/mcp/servers') { res.end(JSON.stringify({ servers: [{ name: 'database', state: 'connected' }] })); return }
     if (url.pathname.endsWith('/health')) { res.end(JSON.stringify({ service: 'praxis', instance_id: 'instance', ready: true, protocol_version: 1, model: 'test', configured: true })); return }
-    if (url.pathname.endsWith('/snapshot')) { res.end(JSON.stringify({ session: summary, sequence: journal.length, messages: [], approvals: [], pending_inputs: [] })); return }
+    if (url.pathname.endsWith('/snapshot')) {
+      if (deletedStatus) { res.writeHead(deletedStatus); res.end('{}'); return }
+      const body = JSON.stringify({ session: summary, sequence: journal.length, messages: [], approvals: [], pending_inputs: [] })
+      if (holdSnapshot) await new Promise<void>(resolve => snapshots.push(resolve))
+      res.end(body); return
+    }
+    if (url.pathname === '/api/sessions/S1' && req.method === 'DELETE') {
+      deletedStatus = 404
+      for (const stream of streams) stream.end('event: deleted\ndata: {}\n\n')
+      res.end(JSON.stringify({ deleted: true, session_id: 'S1' })); return
+    }
     let raw = ''
     for await (const chunk of req) raw += chunk
     const data = raw ? JSON.parse(raw) : {}
@@ -40,7 +54,7 @@ async function fixture() {
       res.end(JSON.stringify({ accepted: true, command_id: data.command_id })); return
     }
     if (url.pathname.endsWith('/sessions') && req.method === 'POST') { res.end(JSON.stringify({ session: summary })); return }
-    if (url.pathname.endsWith('/sessions')) { res.end(JSON.stringify({ sessions: [summary] })); return }
+    if (url.pathname.endsWith('/sessions')) { res.end(JSON.stringify({ sessions: deletedStatus ? [] : [summary] })); return }
     res.writeHead(409); res.end(JSON.stringify({ error: { message: 'conflict' } }))
   })
   server.listen(0, '127.0.0.1')
@@ -53,7 +67,15 @@ async function fixture() {
     await new Promise<void>(resolve => server.close(() => resolve()))
   })
   return {
-    commands, afters, streams,
+    commands, afters, streams, snapshots, summary,
+    holdSnapshot: () => { holdSnapshot = true },
+    remove(status = 404, announce = true) {
+      deletedStatus = status
+      for (const stream of streams) {
+        if (announce) stream.end('event: deleted\ndata: {}\n\n')
+        else stream.destroy()
+      }
+    },
     dropReply: () => { dropInputReply = true },
     async connect() {
       const client = new BackendClient()
@@ -72,6 +94,50 @@ async function fixture() {
 function encode(event: PraxisEvent) { return `id: ${event.sequence}\nevent: ${event.event}\ndata: ${JSON.stringify(event)}\n\n` }
 
 describe('shared HTTP and SSE client', () => {
+  it('removes a deleted chat from both clients without reconnecting or leaving it busy', async () => {
+    const server = await fixture()
+    const first = await server.connect()
+    const second = await server.connect()
+    const events: PraxisEvent[] = []
+    second.on('event', event => events.push(event))
+    await first.request('session.open', { session_id: 'S1' })
+    await second.request('session.open', { session_id: 'S1' })
+    server.append({ session: { ...server.summary, active_turn: { id: 'T1' } } }, 'SessionUpdated')
+    await expect.poll(() => second.busy).toBe(true)
+    await first.request('session.delete', { session_id: 'S1' })
+    await expect.poll(() => events.some(event => event.event === 'SessionDeleted')).toBe(true)
+    expect(first.busy).toBe(false)
+    expect(second.busy).toBe(false)
+    expect(second.status.state).toBe('connected')
+    await expect.poll(() => server.streams.size).toBe(0)
+    expect(server.afters).toHaveLength(2)
+  })
+
+  it.each([404, 410])('treats HTTP %s on SSE reconnect as deletion', async status => {
+    const server = await fixture()
+    const client = await server.connect()
+    const events: PraxisEvent[] = []
+    client.on('event', event => events.push(event))
+    await client.request('session.open', { session_id: 'S1' })
+    server.remove(status, false)
+    await expect.poll(() => events.some(event => event.event === 'SessionDeleted')).toBe(true)
+    expect(client.status.state).toBe('connected')
+    expect(server.afters).toEqual([0, 0])
+    await expect(client.request('session.open', { session_id: 'S1' })).rejects.toThrow('deleted')
+  })
+
+  it('rejects a late snapshot after deletion instead of restoring its busy state', async () => {
+    const server = await fixture()
+    const client = await server.connect()
+    server.holdSnapshot()
+    const opening = expect(client.request('session.open', { session_id: 'S1' })).rejects.toThrow('no longer open')
+    await expect.poll(() => server.snapshots.length).toBe(1)
+    await client.request('session.delete', { session_id: 'S1' })
+    server.snapshots[0]()
+    await opening
+    expect(client.busy).toBe(false)
+  })
+
   it('validates identity, opens a subscription before reading a snapshot', async () => {
     const server = await fixture()
     const client = await server.connect()

@@ -36,6 +36,7 @@ export class EventSubscription {
         const response = await fetch(`${endpoint.url}/api/sessions/${encodeURIComponent(this.sessionId)}/events?after=${this.applied}`, {
           headers: { Authorization: `Bearer ${endpoint.token}` }, signal: controller.signal
         })
+        if (response.status === 404 || response.status === 410) { this.deleted(); return }
         if (!response.ok || !response.body) throw new Error(`Event subscription failed: HTTP ${response.status}`)
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
@@ -55,6 +56,7 @@ export class EventSubscription {
               buffer = buffer.slice(boundary + 2)
               const lines = block.split('\n')
               const kind = lines.find(line => line.startsWith('event:'))?.slice(6).trim()
+              if (kind === 'deleted') { this.deleted(); return }
               if (kind === 'ready') { this.onConnection(true); this.resolveReady(); continue }
               const data = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n')
               if (!data) continue
@@ -81,5 +83,11 @@ export class EventSubscription {
     this.closed = true
     this.controller?.abort()
     this.resolveReady()
+  }
+
+  private deleted(): void {
+    this.closed = true
+    this.rejectReady(new Error('This chat has been deleted.'))
+    this.onEvent({ event: 'SessionDeleted', session_id: this.sessionId, data: {} })
   }
 }

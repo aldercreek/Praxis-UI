@@ -90,9 +90,24 @@ kbd { font-family: inherit; font-size: var(--text-caption); color: var(--muted);
 .session-item > svg { color: var(--muted); }
 .session-item:hover { background: var(--hover); }
 .session-item.selected { background: var(--selected); color: var(--ink); font-weight: 500; }
+.session-row { display: flex; align-items: center; border-radius: 8px; }
+.session-row .session-item { flex: 1; min-width: 0; width: 0; }
+.session-row .chat-actions { flex-shrink: 0; width: 26px; height: 28px; opacity: 0; }
+.session-row:hover .chat-actions, .session-row:focus-within .chat-actions { opacity: 1; }
+.chat-menu { position: fixed; inset: auto; margin: 0; padding: 4px; width: 160px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); }
+.chat-menu button { width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px; border: 0; border-radius: 4px; background: transparent; color: var(--error); text-align: left; font: inherit; }
+.chat-menu button:hover { background: var(--hover); }
+.settings-dialog.delete-chat-dialog { width: min(440px, calc(100vw - 48px)); }
+.delete-chat-body { padding: 0 28px; font-size: var(--text-small); line-height: 1.7; }
+.delete-chat-title { overflow-wrap: anywhere; font-weight: 500; }
+.delete-chat-dialog .dialog-footer { justify-content: flex-end; }
+.button.danger { background: var(--error); color: white; }
+@media (hover: none) { .session-row .chat-actions { opacity: 1; } }
 .session-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex-shrink: 0; margin: 0 3px; }
 .session-dot.approval-dot { background: var(--warning); }
 .sidebar-empty { padding: 5px 11px; max-width: 180px; font-size: var(--text-caption); color: var(--muted); line-height: 1.7; }
+.sidebar-retry { display: block; margin-top: 6px; border: 0; padding: 2px 0; background: transparent; font: inherit; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.sidebar-retry:hover { color: var(--muted); }
 .sidebar-footer { padding: 10px 10px 14px; }
 .sidebar-footer > button { width: 100%; height: 32px; border: 0; background: transparent; border-radius: 8px; display: flex; align-items: center; gap: 9px; padding: 0 10px; font-size: var(--text-label); }
 .sidebar-footer > button:hover { background: var(--hover); }
@@ -310,10 +325,13 @@ details[open] > summary > .disclosure-icon { transform: rotate(90deg); }
 .dialog-footer > span { font-size: var(--text-caption); color: var(--muted); margin-right: auto; line-height: 1.6; }
 .dialog-footer .button { font-size: var(--text-small); }
 
-.session-skeleton { padding: 5px 10px; }
-.session-skeleton i, .transcript-skeleton i { display: block; height: 10px; background: var(--hover); border-radius: 3px; margin-bottom: 18px; }
+.session-skeleton { display: grid; gap: 24px; padding: 13px 10px; animation: session-loading 1.6s ease-in-out infinite; }
+.session-skeleton i, .transcript-skeleton i { display: block; height: 10px; background: var(--hover); border-radius: 3px; }
+.session-skeleton i:first-child { width: 88%; }
 .session-skeleton i:nth-child(2) { width: 70%; }
 .session-skeleton i:nth-child(3) { width: 83%; }
+.session-skeleton i:nth-child(4) { width: 62%; }
+@keyframes session-loading { 50% { opacity: 0.5; } }
 .transcript-skeleton { padding: 6px 0; }
 .transcript-skeleton i { height: 12px; margin-bottom: 15px; }
 .transcript-skeleton i:first-child { width: 25%; margin-bottom: 28px; }

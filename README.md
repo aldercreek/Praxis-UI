@@ -22,6 +22,7 @@ Praxis-UI is an Electron client for [Praxis](https://github.com/aldercreek/Praxi
 - **Persistent conversations.** Reopen sessions and follow streaming responses from the same backend used by the terminal.
 - **Visible execution.** Inspect tool arguments, command output, per-turn plans, subagent activity, and changed files.
 - **Direct control.** Send follow-ups during execution, approve or deny tools, stop a turn, and resume or delete retained input.
+- **Delete chats.** Use a chat's `…` menu or `/delete`, then confirm. Running work stops before history is removed; workspace files are preserved.
 - **Document previews.** Open text, Markdown, images, and PDFs alongside the conversation; reveal files in your system file manager.
 - **Selection-to-quote input.** Select text from an answer or preview and use it as context in your next instruction.
 - **Automatic reconnect.** Recover missed events from the last applied sequence while keeping the existing conversation on screen.
@@ -75,6 +76,8 @@ Closing the desktop disconnects the client. **Use Stop to cancel a turn.** The s
 To share sessions, use the same `PRAXIS_DATA_DIR` as the terminal. It defaults to `~/.praxis`. `PRAXIS_UI_DATA_DIR` controls desktop preferences separately and does not select a different backend.
 
 The sidebar lists chats from all working directories. It refreshes every two seconds while connected and when the window regains focus, so chats created in a terminal appear automatically. The directory picker sets the default for new chats; existing chats and their file previews retain their original workspace.
+
+Chats disappear immediately after deletion is confirmed, while the service finishes cancellation and cleanup. Other clients receive the removal too. If cleanup fails, use **Retry deletion**; a persisted deletion marker also lets the service finish after a restart. Late events and snapshots cannot bring a deleted chat back.
 
 When opening a conversation, the client subscribes before requesting a snapshot, then combines it with newer events. React acknowledges sequences after applying state. A disconnected stream reconnects from that acknowledgement; event replay updates the interface without resubmitting instructions or rerunning tools.
 

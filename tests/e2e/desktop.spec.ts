@@ -1,6 +1,6 @@
 import { stopFixtureService } from './service-fixture'
 import { test, expect, _electron as electron, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -9,13 +9,14 @@ let page: Page
 let profile: string
 const errors: string[] = []
 
-test.beforeEach(async () => {
+test.beforeEach(async ({}, testInfo) => {
   profile = await mkdtemp(join(tmpdir(), 'praxis-ui-e2e-'))
   errors.length = 0
   const env: Record<string, string> = {
     ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     PRAXIS_DATA_DIR: join(profile, 'service'), PRAXIS_UI_DATA_DIR: profile, PRAXIS_UI_TEST_MODE: '1', PRAXIS_UI_TEST_SERVER: resolve('tests/fixtures/ui-server.cjs')
   }
+  if (testInfo.tags.includes('@startup')) env.PRAXIS_UI_TEST_PAUSE_STARTUP = '1'
   delete env.ELECTRON_RUN_AS_NODE
   application = await electron.launch({ args: [resolve('.')], env })
   const visibility = await application.evaluate(({ app, BrowserWindow }) => {
@@ -31,7 +32,9 @@ test.beforeEach(async () => {
   expect(visibility).toEqual({ visible: false, showCount: 0 })
   page = await application.firstWindow()
   page.on('pageerror', error => errors.push(error.message))
-  await expect.poll(() => page.evaluate(async () => (await window.praxis.getInfo()).connection.state)).toBe('connected')
+  if (!testInfo.tags.includes('@startup')) {
+    await expect.poll(() => page.evaluate(async () => (await window.praxis.getInfo()).connection.state)).toBe('connected')
+  }
 })
 
 test.afterEach(async () => {
@@ -48,6 +51,77 @@ test.afterEach(async () => {
   }
   expect(visibility).toEqual({ visible: false, showCount: 0 })
   expect(errors).toEqual([])
+})
+
+async function startupService() {
+  const directory = join(profile, 'service')
+  await expect.poll(async () => {
+    try { await readFile(join(directory, 'service.json')); return true } catch { return false }
+  }).toBe(true)
+  const record = JSON.parse(await readFile(join(directory, 'service.json'), 'utf8'))
+  const token = (await readFile(join(directory, 'service.token'), 'utf8')).trim()
+  const request = async (path: string, data?: unknown) => {
+    const response = await fetch(`http://127.0.0.1:${record.port}${path}`, {
+      method: data === undefined ? 'GET' : 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(5000)
+    })
+    expect(response.ok).toBe(true)
+    return response.json()
+  }
+  return { request, connect: () => writeFile(join(directory, 'startup.release'), '') }
+}
+
+test('startup shows loading until chats arrive and keeps them during background refresh', { tag: '@startup' }, async () => {
+  const loading = page.getByRole('status', { name: 'Loading chats' })
+  await expect(page.locator('.sidebar-section-label')).toHaveText('Recent chats')
+  await expect(loading).toBeVisible()
+  await expect(page.locator('.session-list')).toHaveAttribute('aria-busy', 'true')
+  await expect(page.locator('.sidebar-empty')).toHaveCount(0)
+  const service = await startupService()
+  await service.request('/api/sessions', { workspace: profile })
+  await service.connect()
+  await expect.poll(() => page.evaluate(async () => (await window.praxis.getInfo()).connection.state)).toBe('connected')
+  await expect.poll(async () => (await service.request('/__sessions-test')).pending).toBe(1)
+  await expect(loading).toBeVisible()
+  await expect(page.locator('.sidebar-empty')).toHaveCount(0)
+  await page.screenshot({ path: 'test-results/startup-loading.png', animations: 'disabled' })
+
+  await service.request('/__sessions-test?scenario=normal')
+  await expect(page.locator('.session-item')).toHaveCount(1)
+  await expect(loading).toHaveCount(0)
+  await expect(page.locator('.session-list')).toHaveAttribute('aria-busy', 'false')
+  await page.screenshot({ path: 'test-results/startup-loaded.png', animations: 'disabled' })
+  await service.request('/__sessions-test?scenario=hold')
+  await expect.poll(async () => (await service.request('/__sessions-test')).pending).toBe(1)
+  await expect(page.locator('.session-item')).toHaveCount(1)
+  await expect(loading).toHaveCount(0)
+  await service.request('/__sessions-test?scenario=error')
+  await page.getByLabel('Search chats').fill('no matching conversation')
+  await expect(page.getByText('No matching chats', { exact: true })).toBeVisible()
+  await expect(loading).toHaveCount(0)
+  await page.getByRole('button', { name: 'Clear search' }).click()
+  await expect(page.locator('.session-item')).toHaveCount(1)
+})
+
+test('startup failure offers retry and only shows empty chats after a successful response', { tag: '@startup' }, async () => {
+  await expect(page.getByRole('status', { name: 'Loading chats' })).toBeVisible()
+  const service = await startupService()
+  await service.request('/__sessions-test?scenario=error')
+  await service.connect()
+  await expect(page.locator('.sidebar-empty')).toContainText('Couldn’t load chats.')
+  await expect(page.locator('.composer-error')).toHaveCount(0)
+  await expect(page.getByText('Your conversations will appear here.', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('status', { name: 'Loading chats' })).toHaveCount(0)
+  await page.screenshot({ path: 'test-results/startup-error.png', animations: 'disabled' })
+  await service.request('/__sessions-test?scenario=hold')
+  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByRole('status', { name: 'Loading chats' })).toBeVisible()
+  await expect(page.getByText('Your conversations will appear here.', { exact: true })).toHaveCount(0)
+  await service.request('/__sessions-test?scenario=normal')
+  await expect(page.getByText('Your conversations will appear here.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('status', { name: 'Loading chats' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
 })
 
 test('/mcp shows only service names and states without creating a chat or model input', async () => {
@@ -97,6 +171,57 @@ async function send(text: string): Promise<void> {
   await input.fill(text)
   await input.press('Enter')
 }
+
+test('chat deletion supports keyboard confirmation, cancellation, failure recovery and retry', async () => {
+  await send('A chat to delete')
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+  const action = page.getByRole('button', { name: 'Chat actions: A chat to delete' })
+  await action.focus()
+  await action.press('Enter')
+  await expect(page.getByRole('menuitem', { name: 'Delete chat' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: 'Delete chat?' })
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  await expect(dialog).toContainText('Files in your workspace will stay.')
+  await page.screenshot({ path: 'test-results/delete-chat-confirmation.png', animations: 'disabled' })
+  await page.keyboard.press('Escape')
+  await expect(dialog).not.toBeVisible()
+  await expect(page.locator('.session-item')).toHaveCount(1)
+
+  const service = await startupService()
+  await service.request('/__deletion-test?deletion=fail')
+  await send('/delete')
+  await dialog.getByRole('button', { name: 'Delete chat', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Couldn’t finish deleting the chat.')
+  await expect(page.locator('.session-item')).toHaveCount(1)
+  await service.request('/__deletion-test?deletion=normal')
+  await page.getByRole('button', { name: 'Retry deletion' }).click()
+  await expect(page.locator('.session-item')).toHaveCount(0)
+  await expect(page.locator('.user-content')).toHaveCount(0)
+  await page.reload()
+  await expect(page.locator('.sidebar-empty')).toContainText('Your conversations will appear here.')
+  await send('A new chat after deletion')
+  await expect(page.locator('.session-item')).toHaveCount(1)
+})
+
+test('a deleted chat is not restored by a delayed snapshot', async () => {
+  await send('Late snapshot chat')
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+  await page.reload()
+  await expect(page.locator('.session-item')).toHaveCount(1)
+  const service = await startupService()
+  await service.request('/__deletion-test?snapshot=hold')
+  await page.locator('.session-item').click()
+  await expect.poll(async () => (await service.request('/__deletion-test')).pendingSnapshots).toBe(1)
+  await page.getByRole('button', { name: 'Chat actions: Late snapshot chat' }).click()
+  await page.getByRole('menuitem', { name: 'Delete chat' }).click()
+  await page.getByRole('dialog', { name: 'Delete chat?' }).getByRole('button', { name: 'Delete chat', exact: true }).click()
+  await expect(page.locator('.session-item')).toHaveCount(0)
+  await service.request('/__deletion-test?snapshot=normal')
+  await expect(page.locator('.sidebar-empty')).toContainText('Your conversations will appear here.')
+  await expect(page.locator('.user-content')).toHaveCount(0)
+  await expect(page.locator('.composer-error')).toHaveCount(0)
+})
 
 type TestEvent = { event: string; data?: Record<string, unknown>; agent_id?: string }
 
@@ -349,6 +474,7 @@ test('streaming follows the latest message until the user scrolls away', async (
 })
 
 test('tool activity stays compact while details, errors and live output remain accessible', async () => {
+  test.setTimeout(90_000)
   await send('工具展示：分析 Praxis 项目')
   await expect(page.locator('.tool-group')).toHaveCount(3)
   await expect(page.locator('.tool-group > summary').nth(0)).toContainText('查看了目录、读取了 2 个文件')

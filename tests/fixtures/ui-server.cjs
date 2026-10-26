@@ -1,7 +1,7 @@
 // Deterministic protocol peer used only by Electron integration tests.
 const http = require('node:http')
 const { spawn } = require('node:child_process')
-const { readFileSync } = require('node:fs')
+const { existsSync, readFileSync } = require('node:fs')
 const { randomUUID } = require('node:crypto')
 const directory = process.argv[process.argv.indexOf('--data-dir') + 1]
 if (!directory || !process.env.PRAXIS_UI_TEST_MODE) throw new Error('Isolated fixture directory required')
@@ -13,6 +13,8 @@ if (process.argv.includes('--ensure')) {
   const timer = setInterval(() => {
     try {
       const text = readFileSync(require('node:path').join(directory, 'service.json'), 'utf8')
+      if (process.env.PRAXIS_UI_TEST_PAUSE_STARTUP === '1'
+        && !existsSync(require('node:path').join(directory, 'startup.release'))) return
       clearInterval(timer)
       process.stdout.write(text)
     } catch {
@@ -25,7 +27,7 @@ const journals = new Map()
 const token = randomUUID()
 const instance = randomUUID()
 
-const { existsSync, mkdirSync, realpathSync, writeFileSync } = require('node:fs')
+const { mkdirSync, realpathSync, writeFileSync } = require('node:fs')
 const { isAbsolute, join, relative, resolve, sep } = require('node:path')
 const { tmpdir } = require('node:os')
 const sessions = new Map()
@@ -351,10 +353,49 @@ function dispatch(request) {
   output({ id, error: { code: 'method_not_found', message: method } })
 }
 let mcpScenario = 'normal'
+let sessionListScenario = process.env.PRAXIS_UI_TEST_PAUSE_STARTUP === '1' ? 'hold' : 'normal'
+const pendingSessionLists = new Set()
+let deletionScenario = 'normal'
+let snapshotScenario = 'normal'
+const pendingSnapshots = new Set()
 const server = http.createServer(async (req, res) => {
   if (req.headers.authorization !== `Bearer ${token}`) { res.writeHead(401); res.end('{}'); return }
   const url = new URL(req.url, 'http://127.0.0.1')
   const parts = url.pathname.split('/').filter(Boolean)
+  if (url.pathname === '/__deletion-test') {
+    deletionScenario = url.searchParams.get('deletion') || deletionScenario
+    snapshotScenario = url.searchParams.get('snapshot') || snapshotScenario
+    if (snapshotScenario !== 'hold') {
+      for (const release of pendingSnapshots) release()
+      pendingSnapshots.clear()
+    }
+    res.end(JSON.stringify({ pendingSnapshots: pendingSnapshots.size }))
+    return
+  }
+  if (url.pathname === '/__sessions-test') {
+    const scenario = url.searchParams.get('scenario')
+    if (scenario) {
+      sessionListScenario = scenario
+      if (scenario !== 'hold') {
+        for (const release of pendingSessionLists) release()
+        pendingSessionLists.clear()
+      }
+    }
+    res.end(JSON.stringify({ pending: pendingSessionLists.size }))
+    return
+  }
+  if (url.pathname === '/api/sessions' && req.method === 'GET') {
+    if (sessionListScenario === 'hold') await new Promise(resolve => {
+      pendingSessionLists.add(resolve)
+      res.on('close', () => { pendingSessionLists.delete(resolve); resolve() })
+    })
+    if (res.destroyed) return
+    if (sessionListScenario === 'error') {
+      res.writeHead(503, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: { message: 'Chats temporarily unavailable' } }))
+      return
+    }
+  }
   if (url.pathname === '/__mcp-test') { mcpScenario = url.searchParams.get('scenario'); res.end('{}'); return }
   if (url.pathname === '/api/mcp/servers') {
     res.setHeader('Content-Type', 'application/json')
@@ -368,11 +409,31 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/health') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ service: 'praxis', instance_id: instance, protocol_version: 1, ready: true, model: 'test-model', configured: !mcpScenario.startsWith('no-model'), bypass_approvals: bypass })); return }
   if (url.pathname === '/__shutdown') { res.end('{}'); setTimeout(() => process.exit(0), 20); return }
+  if (parts[1] === 'sessions' && parts.length === 3 && req.method === 'DELETE') {
+    if (deletionScenario === 'fail') {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: { message: 'Cleanup failed. Retry deletion.' } }))
+      return
+    }
+    const session = sessions.get(parts[2])
+    if (session) clearInterval(session.timer)
+    sessions.delete(parts[2])
+    journals.delete(parts[2])
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ deleted: true, session_id: parts[2] }))
+    return
+  }
   if (parts[3] === 'events') {
+    if (!sessions.has(parts[2])) { res.writeHead(404); res.end('{}'); return }
     let cursor = Number(url.searchParams.get('after') || 0)
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
     res.write('event: ready\ndata: {}\n\n')
     const timer = setInterval(() => {
+      if (!sessions.has(parts[2])) {
+        res.end(`event: deleted\ndata: ${JSON.stringify({ session_id: parts[2] })}\n\n`)
+        clearInterval(timer)
+        return
+      }
       for (const event of journals.get(parts[2]) || []) {
         if (event.sequence > cursor) { res.write(`id: ${event.sequence}\nevent: ${event.event}\ndata: ${JSON.stringify(event)}\n\n`); cursor = event.sequence }
       }
@@ -399,7 +460,16 @@ const server = http.createServer(async (req, res) => {
     else if (parts[3] === 'inputs') method = Object.keys(p).some(key => key.startsWith('test_')) || sessions.get(p.session_id)?.status === 'running' ? 'turn.input' : 'turn.start'
   }
   const id = randomUUID()
-  replies.set(id, frame => { res.writeHead(frame.error ? 400 : 200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(frame.error ? { error: frame.error } : frame.result)) })
+  replies.set(id, async frame => {
+    const body = JSON.stringify(frame.error ? { error: frame.error } : frame.result)
+    if (method === 'session.open' && snapshotScenario === 'hold') await new Promise(resolve => {
+      pendingSnapshots.add(resolve)
+      res.on('close', () => { pendingSnapshots.delete(resolve); resolve() })
+    })
+    if (res.destroyed) return
+    res.writeHead(frame.error ? 400 : 200, { 'Content-Type': 'application/json' })
+    res.end(body)
+  })
   dispatch({ id, method, params: p })
 })
 server.listen(0, '127.0.0.1', () => {

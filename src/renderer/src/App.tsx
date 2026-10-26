@@ -2,7 +2,7 @@ import { memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMe
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, Copy, FileText, Folder, GitBranch, GitCompareArrows, Images, ListChecks, LoaderCircle, Maximize2, Minus, PanelLeft, Pencil, Plus, Quote, Search, Settings2, ShieldCheck, Square, SquareTerminal, X } from 'lucide-react'
 import praxisMark from '../../../resources/brand/praxis-mark.svg'
 import praxisWordmark from '../../../resources/brand/praxis-wordmark.svg'
-import type { Approval, DesktopSettings } from '../../shared/protocol'
+import type { Approval, DesktopSettings, SessionSummary } from '../../shared/protocol'
 import { isBusy, isChildAgent, type Conversation, type DisplayMessage, type PlanStep } from './state'
 import { presentTool, type ToolGroup, type ToolKind } from './toolPresentation'
 import { isProcessItem, presentTranscript, processLabel, type TranscriptTurn } from './transcriptPresentation'
@@ -16,6 +16,7 @@ import { QuoteSelection, type TextQuote } from './QuoteSelection'
 import { formatQuotedInput, readQuotedInput } from './quotedInput'
 import { McpStatusDialog } from './McpStatusDialog'
 import { ConversationRail } from './ConversationRail'
+import { ChatActions, DeleteChatDialog } from './DeleteChat'
 
 type Praxis = ReturnType<typeof usePraxis>
 
@@ -183,24 +184,32 @@ function ApprovalPrompt({ approval, onRespond }: { approval: Approval; onRespond
   </section>
 }
 
-function Sidebar({ praxis, openSettings, collapsed, toggleSidebar }: { praxis: Praxis; openSettings: () => void; collapsed: boolean; toggleSidebar: () => void }) {
+function Sidebar({ praxis, openSettings, collapsed, toggleSidebar, onDelete }: { praxis: Praxis; openSettings: () => void; collapsed: boolean; toggleSidebar: () => void; onDelete: (session: SessionSummary) => void }) {
   const [query, setQuery] = useState('')
   const sessions = praxis.sessions.filter(session => `${session.title} ${session.workspace}`.toLowerCase().includes(query.toLowerCase()))
+  const loading = praxis.listState === 'loading' && praxis.sessions.length === 0
+  const failed = praxis.listState === 'error' && praxis.sessions.length === 0
+  const retry = () => {
+    const request = praxis.connection.state === 'connected' ? praxis.refresh() : praxis.api.restart()
+    void request.catch(error => praxis.setError(errorMessage(error)))
+  }
   return <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="Session navigation">
     <div className="brand-row"><span className="brand"><span className="brand-symbol"><PraxisMark small /></span>Praxis</span><IconButton label="Collapse sidebar" onClick={toggleSidebar}><PanelLeft size={16} /></IconButton></div>
     <div className="sidebar-content">
       <button type="button" className="workspace-picker" onClick={() => void praxis.chooseWorkspace()} title={`Default directory for new chats: ${praxis.workspace || 'Choose working directory'}`} disabled={!praxis.api}><Folder size={16} /><span>{praxis.workspace ? baseName(praxis.workspace) : 'Choose working directory'}</span><ChevronDown size={13} /></button>
       <button type="button" className="new-chat" onClick={praxis.newChat}><Plus size={16} /><span>New chat</span><kbd>Ctrl N</kbd></button>
       <label className="session-search"><Search size={14} /><input aria-label="Search chats" placeholder="Search chats" value={query} onChange={event => setQuery(event.target.value)} />{query && <IconButton label="Clear search" onClick={() => setQuery('')}><X size={12} /></IconButton>}</label>
-      <div className="sidebar-section-label">Recent chats · All workspaces</div>
-      <div className="session-list">
-        {praxis.listing && sessions.length === 0 ? <div className="session-skeleton" aria-label="Loading chats"><i /><i /><i /></div> : sessions.length === 0 ? <div className="sidebar-empty">{query ? 'No matching chats' : 'Your conversations will appear here.'}</div> : sessions.map(session => {
+      <div className="sidebar-section-label">Recent chats</div>
+      <div className="session-list" aria-busy={loading}>
+        {loading ? <div className="session-skeleton" role="status" aria-label="Loading chats"><i aria-hidden="true" /><i aria-hidden="true" /><i aria-hidden="true" /><i aria-hidden="true" /></div>
+          : failed ? <div className="sidebar-empty"><span role="status">Couldn’t load chats.</span><button type="button" className="sidebar-retry" onClick={retry} disabled={!praxis.api}>Retry</button></div>
+          : sessions.length === 0 ? <div className="sidebar-empty">{query ? 'No matching chats' : 'Your conversations will appear here.'}</div> : sessions.map(session => {
           const pendingApproval = praxis.conversations[session.id]?.approvals.length > 0
-          return <button key={session.id} type="button" className={`session-item ${session.id === praxis.activeId ? 'selected' : ''}`} aria-current={session.id === praxis.activeId ? 'page' : undefined} onClick={() => void praxis.openSession(session.id)} title={`${session.title || 'New chat'}\n${session.workspace}`}>
+          return <div className="session-row" key={session.id}><button type="button" className={`session-item ${session.id === praxis.activeId ? 'selected' : ''}`} aria-current={session.id === praxis.activeId ? 'page' : undefined} onClick={() => void praxis.openSession(session.id)} title={`${session.title || 'New chat'}\n${session.workspace}`}>
             <span>{session.title || 'New chat'}</span>
             {isBusy(session.status) && <span className={`session-dot ${pendingApproval ? 'approval-dot' : ''}`} aria-label={pendingApproval ? 'Awaiting approval' : 'Running'} />}
             {session.status === 'failed' && <CircleAlert size={12} className="error-text" />}
-          </button>
+          </button><ChatActions session={session} onDelete={() => onDelete(session)} /></div>
         })}
       </div>
     </div>
@@ -264,6 +273,7 @@ export default function App() {
   const praxis = usePraxis()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(window.innerWidth < 900)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [quotes, setQuotes] = useState<Record<string, TextQuote | undefined>>({})
@@ -314,7 +324,8 @@ export default function App() {
   const loading = praxis.loadingSession === praxis.activeId && Boolean(praxis.activeId)
   const ready = connected && !loading && praxis.configured !== false
   const mcpCommand = draft.trim().toLowerCase() === '/mcp'
-  const canSubmit = mcpCommand ? connected : ready && !praxis.sending && !stopping
+  const deleteCommand = draft.trim().toLowerCase() === '/delete'
+  const canSubmit = mcpCommand || deleteCommand ? connected : ready && !praxis.sending && !stopping
   const setDraft = (text: string) => setDrafts(previous => ({ ...previous, [draftKey]: text }))
   const syncScrollState = useCallback(() => {
     const container = scrollRef.current
@@ -340,15 +351,23 @@ export default function App() {
   useEffect(() => { setPanel(undefined) }, [draftKey])
 
   useEffect(() => {
+    const removed = praxis.removedSessionIds
+    setDrafts(previous => Object.keys(previous).some(id => removed.has(id)) ? Object.fromEntries(Object.entries(previous).filter(([id]) => !removed.has(id))) : previous)
+    setQuotes(previous => Object.keys(previous).some(id => removed.has(id)) ? Object.fromEntries(Object.entries(previous).filter(([id]) => !removed.has(id))) : previous)
+    for (const id of removed) disclosureSessions.current.delete(id)
+    if (deleteTarget && removed.has(deleteTarget.id)) setDeleteTarget(null)
+  }, [praxis.conversations])
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n' && !event.shiftKey && !settingsOpen && !mcpOpen) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n' && !event.shiftKey && !settingsOpen && !mcpOpen && !deleteTarget) {
         event.preventDefault(); praxis.newChat(); requestAnimationFrame(() => textareaRef.current?.focus())
       }
       if ((event.ctrlKey || event.metaKey) && event.key === ',') { event.preventDefault(); setSettingsOpen(true) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [praxis.newChat, settingsOpen, mcpOpen])
+  }, [praxis.newChat, settingsOpen, mcpOpen, deleteTarget])
 
   useEffect(() => {
     const textarea = textareaRef.current
@@ -391,13 +410,19 @@ export default function App() {
       setMcpOpen(true)
       return
     }
+    if (deleteCommand) {
+      setDraft('')
+      if (active?.summary) setDeleteTarget(active.summary)
+      else praxis.setError('Open a chat to delete it.')
+      return
+    }
     const key = draftKey
     const content = draft
     const selectedQuote = quote
     setDrafts(previous => ({ ...previous, [key]: '' }))
     stickToBottom.current = true
     const result = await praxis.send(formatQuotedInput(content, selectedQuote))
-    if (!result.success) {
+    if (!result.success && !praxis.removedSessionIds.has(result.sessionId || key)) {
       setDrafts(previous => {
         const destination = result.sessionId || key
         return { ...previous, [destination]: previous[destination] ? `${content}\n\n${previous[destination]}` : content }
@@ -412,7 +437,8 @@ export default function App() {
   const empty = !active?.messages.length && !loading && !busy
   const showNavigation = !loading && Boolean(active?.messages.some(message => message.role === 'user')) && !(panelTarget && compactPanel)
   return <div className={`app ${sidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}>
-    <Sidebar praxis={praxis} collapsed={sidebarCollapsed} toggleSidebar={() => setSidebarCollapsed(value => !value)} openSettings={() => setSettingsOpen(true)} />
+    <Sidebar praxis={praxis} collapsed={sidebarCollapsed} toggleSidebar={() => setSidebarCollapsed(value => !value)} openSettings={() => setSettingsOpen(true)} onDelete={setDeleteTarget} />
+    <DeleteChatDialog session={deleteTarget ? praxis.conversations[deleteTarget.id]?.summary || deleteTarget : null} close={() => setDeleteTarget(null)} confirm={id => { void praxis.deleteSession(id) }} />
     <main className="main">
       <header className="titlebar">
         <div className="titlebar-leading">{sidebarCollapsed && <IconButton label="Expand sidebar" onClick={() => setSidebarCollapsed(false)}><PanelLeft size={16} /></IconButton>}<span className="titlebar-title" title={title}>{title}</span></div>
@@ -449,7 +475,7 @@ export default function App() {
 
       <div className="composer-region">
         {showScroll && <button type="button" className="scroll-bottom" aria-label="回到最新消息" title="回到最新消息" onClick={() => { const container = scrollRef.current; if (container) container.scrollTop = container.scrollHeight; stickToBottom.current = true; setShowScroll(false) }}><ArrowDown size={16} aria-hidden="true" /></button>}
-        {praxis.error && <div className="composer-error" role="alert"><CircleAlert size={14} /><span>{praxis.error}</span><IconButton label="Dismiss error" onClick={() => praxis.setError('')}><X size={13} /></IconButton></div>}
+        {praxis.error && <div className="composer-error" role="alert"><CircleAlert size={14} /><span>{praxis.error}</span>{praxis.deleteFailure && <button type="button" className="button" onClick={() => void praxis.deleteSession(praxis.deleteFailure!)}>Retry deletion</button>}<IconButton label="Dismiss error" onClick={() => praxis.setError('')}><X size={13} /></IconButton></div>}
         {!loading && active && (busy || active.plan.length > 0) && <ExecutionBar key={`${praxis.activeId}:${active.activeTurnId || 'current'}`} conversation={active} />}
         <form className={`composer ${busy ? 'composer-running' : ''}`} onSubmit={event => { event.preventDefault(); void submit() }}>
           {quote && <div className="quote-draft"><details><summary><Quote size={14} /><span><strong>引用助手回复</strong><span>{quote.text}</span></span><ChevronRight size={12} /></summary><blockquote>{quote.text}</blockquote></details><IconButton label="移除引用" disabled={praxis.sending} onClick={() => setQuotes(previous => ({ ...previous, [draftKey]: undefined }))}><X size={13} /></IconButton></div>}

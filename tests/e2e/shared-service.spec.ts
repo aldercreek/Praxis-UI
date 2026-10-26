@@ -16,9 +16,9 @@ let endpoint: string
 let token: string
 const errors: string[] = []
 
-async function request<T>(path: string, data?: unknown): Promise<T> {
+async function request<T>(path: string, data?: unknown, method = data === undefined ? 'GET' : 'POST'): Promise<T> {
   const response = await fetch(endpoint + path, {
-    method: data === undefined ? 'GET' : 'POST',
+    method,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(5000)
   })
@@ -125,4 +125,43 @@ test('restores saved chats and discovers other clients across workspaces without
   await expect(page.getByRole('article', { name: 'Assistant response' })).toContainText('offline response')
   await expect(page.locator('.user-content')).toHaveText(['hold this turn from terminal', 'continue externally'])
   await page.screenshot({ path: 'test-results/shared-service-restored.png', animations: 'disabled' })
+})
+
+test('deletes running work and synchronizes remote deletion with the real service', async () => {
+  const { sessions } = await request<{ sessions: SessionSummary[] }>('/api/sessions')
+  const alpha = sessions.find(session => session.title === 'Saved question alpha')!
+  const beta = sessions.find(session => session.title === 'Saved question beta')!
+  // Even a chat that was never opened is removed through the shared list refresh.
+  await request(`/api/sessions/${beta.id}`, undefined, 'DELETE')
+  await expect(page.locator('.session-item')).toHaveCount(1)
+  await page.locator('.session-item').click()
+  await expect(page.locator('.user-content')).toHaveText('Saved question alpha')
+  await page.locator('textarea').fill('hold this turn for deletion')
+  await page.locator('textarea').press('Enter')
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+  await page.locator('textarea').fill('/delete')
+  await page.locator('textarea').press('Enter')
+  const dialog = page.getByRole('dialog', { name: 'Delete chat?' })
+  await expect(dialog).toContainText('This chat is running.')
+  await page.screenshot({ path: 'test-results/delete-running-chat.png', animations: 'disabled' })
+  await dialog.getByRole('button', { name: 'Delete chat', exact: true }).click()
+  await expect(page.locator('.session-item')).toHaveCount(0)
+  await expect.poll(() => request('/api/sessions')).toEqual({ sessions: [] })
+  await expect.poll(async () => (await fetch(`${endpoint}/api/sessions/${alpha.id}/snapshot`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })).status).toBe(404)
+  expect(await readFile(join(alpha.workspace, 'notes.md'), 'utf8')).toContain('Notes from alpha')
+  expect(await request('/api/mcp/servers')).toEqual({ servers: [
+    { name: '离线工具', state: 'connected' }, { name: '文档服务', state: 'disabled' }
+  ] })
+
+  await page.locator('textarea').fill('Continue after deletion')
+  await page.locator('textarea').press('Enter')
+  await expect(page.getByRole('article', { name: 'Assistant response' })).toContainText('offline response')
+  const remaining = await request<{ sessions: SessionSummary[] }>('/api/sessions')
+  // An open conversation receives the terminal deletion control through SSE.
+  await request(`/api/sessions/${remaining.sessions[0].id}`, undefined, 'DELETE')
+  await expect(page.locator('.session-item')).toHaveCount(0)
+  await expect(page.locator('.user-content')).toHaveCount(0)
+  await expect.poll(() => page.evaluate(async () => (await window.praxis.getInfo()).connection.state)).toBe('connected')
 })

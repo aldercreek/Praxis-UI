@@ -65,7 +65,7 @@ export class BackendClient extends EventEmitter {
         if (!response.ok) {
           if (response.status === 401 && attempt < 3) { await this.reconnect(); continue }
           const body = await response.json() as { error?: { message: string } }
-          throw new RequestError(body.error?.message || `HTTP ${response.status}`)
+          throw new RequestError(body.error?.message || `HTTP ${response.status}`, response.status)
         }
         return await response.json() as T
       } catch (error) {
@@ -84,6 +84,7 @@ export class BackendClient extends EventEmitter {
       sessionId, () => this.endpoint!, () => this.reconnect(),
       event => {
         if (generation !== this.generation) return
+        if (event.event === 'SessionDeleted') this.forgetSession(sessionId)
         if (event.event === 'SessionUpdated') {
           const summary = event.data.session as SessionSummary
           event.data.session = displaySession(summary)
@@ -110,6 +111,14 @@ export class BackendClient extends EventEmitter {
     this.subscriptions.get(sessionId)?.acknowledge(sequence)
   }
 
+  private forgetSession(sessionId: string): void {
+    this.subscriptions.get(sessionId)?.close()
+    this.subscriptions.delete(sessionId)
+    this.activeSessions.delete(sessionId)
+    this.disconnectedStreams.delete(sessionId)
+    if (this.status.state === 'reconnecting' && !this.disconnectedStreams.size) this.setStatus({ state: 'connected' })
+  }
+
   async request<T = Record<string, unknown>>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     const sessionId = String(params.session_id || '')
     const session = `/api/sessions/${encodeURIComponent(sessionId)}`
@@ -119,8 +128,20 @@ export class BackendClient extends EventEmitter {
       case 'mcp.status': result = await this.http('GET', '/api/mcp/servers'); break
       case 'settings.update': result = await this.http('PUT', '/api/settings', params); break
       case 'session.list': {
+        const watched = [...this.subscriptions.keys()]
         const listed = await this.http<{ sessions: SessionSummary[] }>('GET', '/api/sessions?' + new URLSearchParams(params as Record<string, string>))
+        if (!params.workspace) for (const id of watched) {
+          if (listed.sessions.some(session => session.id === id)) continue
+          this.forgetSession(id)
+          this.emit('event', { event: 'SessionDeleted', session_id: id, data: {} })
+        }
         result = { sessions: listed.sessions.map(displaySession) }; break
+      }
+      case 'session.delete': {
+        result = await this.http('DELETE', session)
+        this.forgetSession(sessionId)
+        this.emit('event', { event: 'SessionDeleted', session_id: sessionId, data: {} })
+        break
       }
       case 'session.create': {
         const created = await this.http<{ session: SessionSummary }>('POST', '/api/sessions', { ...params, command_id: params.command_id || randomUUID() })
@@ -130,7 +151,19 @@ export class BackendClient extends EventEmitter {
       }
       case 'session.open': {
         await this.subscribe(sessionId)
-        const snapshot = await this.http<SessionSnapshot>('GET', session + '/snapshot')
+        const subscription = this.subscriptions.get(sessionId)
+        let snapshot: SessionSnapshot
+        try { snapshot = await this.http<SessionSnapshot>('GET', session + '/snapshot') }
+        catch (error) {
+          if (error instanceof RequestError && [404, 410].includes(error.status)) {
+            this.forgetSession(sessionId)
+            this.emit('event', { event: 'SessionDeleted', session_id: sessionId, data: {} })
+          }
+          throw error
+        }
+        if (!subscription || this.subscriptions.get(sessionId) !== subscription) {
+          throw new Error('This chat is no longer open.')
+        }
         if (snapshot.session.active_turn) this.activeSessions.add(sessionId)
         else this.activeSessions.delete(sessionId)
         result = { ...snapshot, session: displaySession(snapshot.session) }
@@ -157,7 +190,9 @@ export class BackendClient extends EventEmitter {
   }
 }
 
-class RequestError extends Error {}
+class RequestError extends Error {
+  constructor(message: string, readonly status: number) { super(message) }
+}
 
 function displaySession(session: SessionSummary): SessionSummary {
   const active = session.active_turn

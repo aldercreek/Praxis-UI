@@ -14,25 +14,40 @@ export function usePraxis() {
   const [workspace, setWorkspace] = useState('')
   const [error, setError] = useState('')
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
-  const [listing, setListing] = useState(false)
+  const [listState, setListState] = useState<'loading' | 'ready' | 'error'>(api ? 'loading' : 'error')
   const [sending, setSending] = useState(false)
   const [configured, setConfigured] = useState<boolean | null>(null)
+  const [deleteFailure, setDeleteFailure] = useState<string | null>(null)
+  const removed = useRef(new Set<string>())
+  const deletionRequests = useRef(new Map<string, Promise<void>>())
   const workspaceRef = useRef('')
   const conversationsRef = useRef(conversations)
   const snapshots = useRef(new Map<string, { events: PraxisEvent[]; generation: number }>())
   const connectionGeneration = useRef(0)
-  const refreshing = useRef(false)
+  const refreshing = useRef<number | null>(null)
   conversationsRef.current = conversations
+  const removeSession = useCallback((sessionId: string) => {
+    removed.current.add(sessionId)
+    snapshots.current.delete(sessionId)
+    setLoadingSession(previous => previous === sessionId ? null : previous)
+    setActiveId(previous => previous === sessionId ? null : previous)
+    setConversations(previous => {
+      const next = { ...previous }
+      delete next[sessionId]
+      return next
+    })
+    try { localStorage.removeItem(`praxis:conversation-bookmarks:v1:${sessionId}`) } catch { /* Storage may be unavailable. */ }
+  }, [])
   useEffect(() => {
     for (const [id, conversation] of Object.entries(conversations)) api?.acknowledge(id, conversation.sequence)
   }, [api, conversations])
 
   const refresh = useCallback(async (quiet = false) => {
-    if (!api || refreshing.current) return
-    refreshing.current = true
     const generation = connectionGeneration.current
+    if (!api || refreshing.current === generation) return
+    refreshing.current = generation
     const before = conversationsRef.current
-    if (!quiet) setListing(true)
+    if (!quiet) setListState(previous => previous === 'ready' ? previous : 'loading')
     try {
       if (!quiet) {
         const initialized = await api.request<{ model: string; configured: boolean }>('initialize')
@@ -41,9 +56,12 @@ export function usePraxis() {
       }
       const result = await api.request<{ sessions: SessionSummary[] }>('session.list')
       if (generation !== connectionGeneration.current) return
+      const listed = new Set(result.sessions.map(session => session.id))
+      for (const id of Object.keys(before)) if (!listed.has(id)) removeSession(id)
       setConversations(previous => {
         const next = { ...previous }
         for (const session of result.sessions) {
+          if (removed.current.has(session.id)) continue
           const conversation = next[session.id] || emptyConversation()
           // A list response must not undo newer SSE state received during the request.
           if (conversation.sequence > (before[session.id]?.sequence || 0)) continue
@@ -51,19 +69,23 @@ export function usePraxis() {
         }
         return next
       })
-    } catch (error) {
-      if (!quiet && generation === connectionGeneration.current) setError(errorMessage(error))
+      setListState('ready')
+    } catch {
+      if (generation === connectionGeneration.current) {
+        setListState(previous => previous === 'ready' ? previous : 'error')
+      }
     } finally {
-      refreshing.current = false
-      if (!quiet) setListing(false)
+      if (refreshing.current === generation) refreshing.current = null
     }
-  }, [api])
+  }, [api, removeSession])
 
   useEffect(() => {
     if (!api) return
     let previousConnection: ConnectionStatus['state'] = 'connecting'
     const offEvent = api.onEvent(event => {
       if (!event.session_id) return
+      if (event.event === 'SessionDeleted') { removeSession(event.session_id); return }
+      if (removed.current.has(event.session_id)) return
       const buffered = snapshots.current.get(event.session_id)
       if (buffered) {
         buffered.events.push(event)
@@ -75,6 +97,9 @@ export function usePraxis() {
       const resumed = previousConnection === 'reconnecting'
       previousConnection = status.state
       setConnection(status)
+      if (status.state === 'connecting' || status.state === 'reconnecting') {
+        setListState(previous => previous === 'ready' ? previous : 'loading')
+      }
       if (status.state === 'connected' && resumed) {
         void refresh(true)
       } else if (status.state === 'connected') {
@@ -85,6 +110,7 @@ export function usePraxis() {
         setConversations(previous => Object.fromEntries(Object.entries(previous).map(([id, conversation]) => [id, { ...conversation, loaded: false, sequence: 0, approvals: [] }])))
         void refresh()
       } else if (status.state === 'error' || status.state === 'disconnected') {
+        setListState(previous => previous === 'ready' ? previous : 'error')
         connectionGeneration.current += 1
         snapshots.current.clear()
         setLoadingSession(null)
@@ -101,9 +127,15 @@ export function usePraxis() {
       workspaceRef.current = value.settings.workspace
       setWorkspace(value.settings.workspace)
       if (value.connection.state === 'connected') void refresh()
-    }).catch(error => setError(errorMessage(error)))
+      else if (value.connection.state === 'error' || value.connection.state === 'disconnected') {
+        setListState(previous => previous === 'ready' ? previous : 'error')
+      }
+    }).catch(error => {
+      setListState(previous => previous === 'ready' ? previous : 'error')
+      setError(errorMessage(error))
+    })
     return () => { offEvent(); offConnection() }
-  }, [api, refresh])
+  }, [api, refresh, removeSession])
 
   useEffect(() => {
     if (connection.state !== 'connected') return
@@ -115,6 +147,7 @@ export function usePraxis() {
   }, [connection.state, refresh])
 
   const openSession = useCallback(async (sessionId: string) => {
+    if (removed.current.has(sessionId)) return
     setActiveId(sessionId)
     setError('')
     if (conversationsRef.current[sessionId]?.loaded) return
@@ -145,6 +178,32 @@ export function usePraxis() {
 
   const newChat = useCallback(() => { setActiveId(null); setError('') }, [])
 
+  const deleteSession = useCallback((sessionId: string): Promise<void> => {
+    const pending = deletionRequests.current.get(sessionId)
+    if (pending) return pending
+    removeSession(sessionId)
+    setError('')
+    setDeleteFailure(null)
+    const operation = (async () => {
+      try { await api.request('session.delete', { session_id: sessionId }) }
+      catch (failure) {
+        // A lost response is ambiguous. Restore only if the service still lists it.
+        try {
+          const result = await api.request<{ sessions: SessionSummary[] }>('session.list')
+          const session = result.sessions.find(item => item.id === sessionId)
+          if (session) {
+            removed.current.delete(sessionId)
+            setConversations(previous => ({ ...previous, [sessionId]: { ...emptyConversation(), summary: session } }))
+          }
+        } catch { /* Keep it hidden until deletion can be retried. */ }
+        setError(`Couldn’t finish deleting the chat. ${errorMessage(failure)}`)
+        setDeleteFailure(sessionId)
+      } finally { deletionRequests.current.delete(sessionId) }
+    })()
+    deletionRequests.current.set(sessionId, operation)
+    return operation
+  }, [api, removeSession])
+
   const chooseWorkspace = useCallback(async () => {
     try {
       const selected = await api.chooseDirectory('workspace')
@@ -169,10 +228,12 @@ export function usePraxis() {
       if (!sessionId) {
         const result = await api.request<{ session: SessionSummary }>('session.create', { workspace })
         sessionId = result.session.id
+        if (removed.current.has(sessionId)) throw new Error('This chat has been deleted.')
         setConversations(previous => ({ ...previous, [sessionId!]: { ...(previous[sessionId!] || emptyConversation()), summary: result.session, loaded: true } }))
         setActiveId(sessionId)
       }
       queued = isBusy(conversationsRef.current[sessionId]?.summary?.status)
+      if (removed.current.has(sessionId)) throw new Error('This chat has been deleted.')
       setConversations(previous => {
         const conversation = previous[sessionId!] || emptyConversation()
         return { ...previous, [sessionId!]: {
@@ -223,7 +284,7 @@ export function usePraxis() {
     if (!activeId) return
     try {
       await api.request('approval.decide', { session_id: activeId, approval_id: approvalId, approved })
-      setConversations(previous => ({ ...previous, [activeId]: { ...previous[activeId], approvals: previous[activeId].approvals.filter(approval => approval.approval_id !== approvalId) } }))
+      setConversations(previous => previous[activeId] ? ({ ...previous, [activeId]: { ...previous[activeId], approvals: previous[activeId].approvals.filter(approval => approval.approval_id !== approvalId) } }) : previous)
     } catch (error) { setError(errorMessage(error)); throw error }
   }, [activeId, api])
 
@@ -260,7 +321,8 @@ export function usePraxis() {
 
   return {
     api, info, connection, conversations, activeId, active: activeId ? conversations[activeId] : undefined,
-    workspace, sessions, error, setError, listing, sending, configured, loadingSession,
-    refresh, openSession, newChat, chooseWorkspace, send, stop, approve, resumeInputs, deleteInput, saveSettings
+    workspace, sessions, error, setError, listState, sending, configured, loadingSession,
+    refresh, openSession, newChat, chooseWorkspace, send, stop, approve, resumeInputs, deleteInput, saveSettings,
+    deleteSession, deleteFailure, removedSessionIds: removed.current
   }
 }
