@@ -33,16 +33,17 @@ export function DeleteChatDialog({ session, close, confirm }: {
     else ref.current?.close()
   }, [session?.id])
   const status = session?.status
-  return <dialog ref={ref} className="settings-dialog delete-chat-dialog" aria-labelledby={id} aria-describedby={`${id}-description`}
+  return <dialog ref={ref} className="praxis-dialog delete-chat-dialog" aria-labelledby={id} aria-describedby={`${id}-description`}
     onCancel={event => { event.preventDefault(); close() }}>
-    <div className="dialog-header"><h2 id={id}>Delete chat?</h2><button type="button" className="icon-button" aria-label="Close delete confirmation" onClick={close}><X size={16} /></button></div>
+    <div className="delete-chat-header"><h2 id={id}>Delete chat?</h2><button type="button" className="icon-button" aria-label="Close delete confirmation" onClick={close}><X size={16} /></button></div>
     <div className="delete-chat-body" id={`${id}-description`}>
       <p className="delete-chat-title">{session?.title || 'New chat'}</p>
-      <p>{status === 'running' ? 'This chat is running. Deleting it will stop the task and remove its history.'
-        : status === 'stopping' ? 'This chat is stopping. Its history will be removed after the task stops.'
-        : 'This will permanently remove the chat and its history.'} Files in your workspace will stay.</p>
+      <p>{status === 'running' ? 'This chat is running. Deleting it will stop the task and permanently remove its history.'
+        : status === 'stopping' ? 'This chat is stopping. Its history will be permanently removed after the task stops.'
+        : 'This chat and its history will be permanently deleted.'}</p>
+      <p className="delete-chat-note">Files in your workspace will stay.</p>
     </div>
-    <div className="dialog-footer"><button ref={cancel} type="button" className="button" onClick={close}>Cancel</button>
-      <button type="button" className="button danger" onClick={() => { if (session) confirm(session.id); close() }}>Delete chat</button></div>
+    <div className="delete-chat-actions"><button ref={cancel} type="button" onClick={close}>Cancel</button>
+      <button type="button" className="delete-chat-confirm" onClick={() => { if (session) confirm(session.id); close() }}>Delete chat</button></div>
   </dialog>
 }

@@ -1,37 +1,46 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUpRight, ChevronRight, FileText, FolderOpen, GitCompareArrows, RotateCw, X } from 'lucide-react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ArrowUpRight, FileText, FolderOpen, GitCompareArrows, RotateCw, X } from 'lucide-react'
 import type { FilePreview } from '../../shared/protocol'
 import { FileNavigationContext, MarkdownContent, type FileNavigation } from './MarkdownContent'
-import { fileName } from './fileLinks'
-import type { TurnChanges } from './changeSummary'
+import { fileName, isAbsoluteFileReference } from './fileLinks'
+import type { ChangedFile, FileEdit, TurnChanges } from './changeSummary'
+import { fileDiffLines } from './fileDiff'
+import './filePanel.css'
 
 const PdfPreview = lazy(() => import('./PdfPreview'))
-export type PanelTarget = { type: 'file'; path: string; turnId?: string } | { type: 'changes'; turnId: string }
+export type PanelTarget = { type: 'file'; path: string; turnId?: string } | { type: 'changes'; turnId: string; fileId?: string }
 
 export function FilePanel({ target, workspace, turns, activeTurnId, onTarget, onClose }: {
   target: PanelTarget; workspace: string; turns: TurnChanges[]; activeTurnId?: string
   onTarget: (target: PanelTarget) => void; onClose: () => void
 }) {
-  const [selectedFiles, setSelectedFiles] = useState<Record<string, string>>({})
   const [actionError, setActionError] = useState('')
   const actionVersion = useRef(0)
   const panel = useRef<HTMLElement>(null)
+  const diffContent = useRef<HTMLDivElement>(null)
+  const fileRegions = useRef(new Map<string, HTMLElement>())
   const closeButton = useRef<HTMLButtonElement>(null)
   const turnId = target.turnId || activeTurnId
   const turn = turns.find(item => item.turnId === turnId)
-  const changedFile = turn?.files.find(file => file.id === selectedFiles[turnId || '']) || turn?.files[0]
-  const path = target.type === 'file' ? target.path : changedFile?.previewPath
+  const path = target.type === 'file' ? target.path : undefined
+  const edits = turn?.files.flatMap(file => file.edits) || []
   const navigation = useMemo<FileNavigation>(() => ({ workspace, openFile: path => onTarget({ type: 'file', path, turnId }), onError: setActionError }), [workspace, turnId, onTarget])
   useEffect(() => {
     // Following a document link can remove the focused element. Keep keyboard
     // navigation in the preview while leaving surviving controls focused.
     if (!panel.current?.contains(document.activeElement)) closeButton.current?.focus({ preventScroll: true })
-  }, [path, target.type])
+  }, [target, turnId])
+  useLayoutEffect(() => {
+    const container = diffContent.current
+    if (target.type !== 'changes' || !container) return
+    const file = target.fileId ? fileRegions.current.get(target.fileId) : undefined
+    container.scrollTop = file ? container.scrollTop + file.getBoundingClientRect().top - container.getBoundingClientRect().top - 16 : 0
+  }, [target, turn?.files.length])
   useEffect(() => {
     actionVersion.current += 1
     setActionError('')
     return () => { actionVersion.current += 1 }
-  }, [path, target.type])
+  }, [path, target.type, turnId])
   const action = async (kind: 'open' | 'reveal') => {
     if (!path) return
     const version = ++actionVersion.current
@@ -42,28 +51,55 @@ export function FilePanel({ target, workspace, turns, activeTurnId, onTarget, on
     } catch (error) { if (version === actionVersion.current) setActionError(String(error instanceof Error ? error.message : error)) }
   }
 
-  return <aside ref={panel} className="artifact-panel" aria-label="文件与改动" onKeyDown={event => {
+  return <aside ref={panel} className="artifact-panel praxis-file-panel" aria-label="Files and changes" onKeyDown={event => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose() }
   }}>
-    <div className="artifact-panel-header"><div className="artifact-tabs" role="group" aria-label="查看内容">
-      <button type="button" aria-pressed={target.type === 'file'} disabled={!path} onClick={() => path && onTarget({ type: 'file', path, turnId })}><FileText size={14} />文件预览</button>
-      <button type="button" aria-pressed={target.type === 'changes'} disabled={!turn?.files.length} onClick={() => turnId && onTarget({ type: 'changes', turnId })}><GitCompareArrows size={14} />{turnId && turnId !== activeTurnId ? '改动' : '本轮改动'}{turn && <span>{turn.files.length}</span>}</button>
-    </div><button ref={closeButton} type="button" className="icon-button" aria-label="关闭预览" title="关闭预览 · Esc" onClick={onClose}><X size={16} /></button></div>
+    <div className="diff-header">
+      {target.type === 'changes' ? <><span>File changes</span><DiffStats edits={edits} /></> : <>
+        <span>File contents</span>{turn?.files.length && turnId ? <button type="button" className="diff-return" onClick={() => onTarget({ type: 'changes', turnId })}><GitCompareArrows size={14} />Changes for this turn</button> : null}
+      </>}
+      <button ref={closeButton} type="button" className="icon-button" aria-label="Close preview" title="Close preview · Esc" onClick={onClose}><X size={16} /></button>
+    </div>
     <FileNavigationContext.Provider value={navigation}>
       {target.type === 'changes' ? <>
-        <div className="changed-files" aria-label="更改的文件">{turn?.files.map(file => <button type="button" key={file.id} className="changed-file-button" aria-pressed={file.id === changedFile?.id} onClick={() => setSelectedFiles(previous => ({ ...previous, [turnId!]: file.id }))}>
-          <FileText size={14} /><span title={file.source ? `子任务 ${file.source} · ${file.path}` : file.path}>{file.path}{file.source && <span className="muted"> · 子任务 {file.source}</span>}</span><small>{file.edits.length > 1 ? `${file.edits.length} 次修改` : `+${file.edits[0].added} −${file.edits[0].removed}`}</small><ChevronRight size={12} />
-        </button>)}</div>
-        {changedFile ? <><div className="artifact-file-heading"><span title={changedFile.path}>{fileName(changedFile.path)}</span>{path && <button type="button" className="text-action" onClick={() => onTarget({ type: 'file', path, turnId })}>查看当前文件<ArrowUpRight size={13} /></button>}</div>
-          {!path && <p className="preview-notice">子任务未提供完整文件路径，当前可查看改动内容。</p>}
-          <div className="change-diffs">{changedFile.edits.map((edit, index) => <section className="change-edit" key={edit.id}>
-            <div className="change-edit-label"><span>{changedFile.edits.length > 1 ? `第 ${index + 1} 次修改` : '文件改动'}</span><span><i>+{edit.added}</i> <b>−{edit.removed}</b></span></div>
-            <pre className="file-diff" tabIndex={0} aria-label={`${changedFile.path} 第 ${index + 1} 次修改`}>{edit.diff.split('\n').map((line, lineIndex) => <span key={lineIndex} className={line.startsWith('+++') || line.startsWith('---') ? 'diff-meta' : line.startsWith('+') ? 'diff-add' : line.startsWith('-') ? 'diff-remove' : line.startsWith('@@') ? 'diff-meta' : ''}>{line || '\u00a0'}</span>)}</pre>
-          </section>)}</div></> : <p className="preview-notice">这轮还没有可查看的文件改动。</p>}
+        <div ref={diffContent} className="diff-content" aria-label="Changed files">{turn?.files.length ? turn.files.map(file => <section className="diff-file" key={file.id} data-file-path={file.path} data-file-id={file.id}
+          ref={node => { if (node) fileRegions.current.set(file.id, node); else fileRegions.current.delete(file.id) }}>
+          <div className="diff-filename"><FileText size={15} />
+            {file.previewPath ? <button type="button" title="View current file" onClick={() => onTarget({ type: 'file', path: file.previewPath!, turnId })}>{fileName(file.path)}</button> : <span>{fileName(file.path)}</span>}
+            <DiffStats edits={file.edits} />
+          </div>
+          <div className="diff-path">{fullDisplayPath(file, workspace)}{file.source && <span> · Subtask {file.source}</span>}</div>
+          <div className="change-diffs">{file.edits.map((edit, index) => <section className="change-edit" key={edit.id}>
+            {file.edits.length > 1 && <div className="change-edit-label"><span>Edit {index + 1}</span><DiffStats edits={[edit]} /></div>}
+            <pre className="file-diff diff-lines" tabIndex={0} aria-label={`${file.path} edit ${index + 1}`}>{fileDiffLines(edit.diff).map((line, lineIndex) => <span key={lineIndex} className={`diff-line ${line.kind}`}>
+              <span className="line-number" aria-hidden="true">{line.number ?? ''}</span><span className="sign" aria-hidden="true">{line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : ' '}</span><span className="diff-code">{line.content || '\u00a0'}</span>
+            </span>)}</pre>
+          </section>)}</div>
+        </section>) : <p className="preview-notice">No file changes in this turn yet.</p>}</div>
+        <div className="diff-footer">{turn?.files.length || 0} {turn?.files.length === 1 ? 'file' : 'files'} changed</div>
       </> : <FilePreviewContent key={target.path} path={target.path} workspace={workspace} navigation={navigation} onOpen={() => void action('open')} onReveal={() => void action('reveal')} />}
     </FileNavigationContext.Provider>
     {actionError && <div className="preview-error" role="alert">{actionError}</div>}
   </aside>
+}
+
+function DiffStats({ edits }: { edits: FileEdit[] }) {
+  const added = edits.reduce((total, edit) => total + edit.added, 0)
+  const removed = edits.reduce((total, edit) => total + edit.removed, 0)
+  return <span className="file-stats" title="Total lines changed"><span className="added">+{added}</span><span className="removed">−{removed}</span></span>
+}
+
+function fullDisplayPath(file: ChangedFile, workspace: string): string {
+  if (!file.previewPath || !workspace || isAbsoluteFileReference(file.previewPath)) return file.path
+  const windows = /^[a-z]:[/\\]/i.test(workspace)
+  const combined = `${workspace.replaceAll('\\', '/').replace(/\/$/, '')}/${file.previewPath.replaceAll('\\', '/')}`
+  const parts: string[] = []
+  for (const part of combined.split('/')) {
+    if (part === '.') continue
+    if (part === '..' && parts.length > 1) parts.pop()
+    else parts.push(part)
+  }
+  return parts.join(windows ? '\\' : '/')
 }
 
 function FilePreviewContent({ path, workspace, navigation, onOpen, onReveal }: {
@@ -85,20 +121,21 @@ function FilePreviewContent({ path, workspace, navigation, onOpen, onReveal }: {
   const fileNavigation = useMemo(() => ({ ...navigation, baseFile: file?.path }), [navigation, file?.path])
   const size = file ? file.size < 1024 ? `${file.size} B` : file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB` : `${(file.size / 1024 / 1024).toFixed(1)} MB` : ''
   return <>
-    <div className="artifact-file-heading"><span title={file?.path || path}>{file?.name || fileName(path)}</span><small>{size}</small><div className="artifact-file-actions">
-      <button type="button" className="icon-button" aria-label="刷新文件" title="刷新文件" disabled={loading} onClick={() => setRevision(value => value + 1)}><RotateCw size={14} /></button>
-      <button type="button" className="icon-button" aria-label="在文件夹中显示" title="在文件夹中显示" disabled={!file || loading} onClick={onReveal}><FolderOpen size={15} /></button>
-      <button type="button" className="icon-button" aria-label="用默认应用打开" title={file && !file.canOpen ? '可预览或在文件夹中显示' : '用默认应用打开'} disabled={!file?.canOpen || loading} onClick={onOpen}><ArrowUpRight size={15} /></button>
+    <div className="artifact-file-heading"><FileText size={15} /><span title={file?.path || path}>{file?.name || fileName(path)}</span><small>{size}</small><div className="artifact-file-actions">
+      <button type="button" className="icon-button" aria-label="Refresh file" title="Refresh file" disabled={loading} onClick={() => setRevision(value => value + 1)}><RotateCw size={14} /></button>
+      <button type="button" className="icon-button" aria-label="Show in folder" title="Show in folder" disabled={!file || loading} onClick={onReveal}><FolderOpen size={15} /></button>
+      <button type="button" className="icon-button" aria-label="Open in default app" title={file && !file.canOpen ? 'Preview or show in folder' : 'Open in default app'} disabled={!file?.canOpen || loading} onClick={onOpen}><ArrowUpRight size={15} /></button>
     </div></div>
+    <div className="diff-path">{file?.path || path}</div>
     <div className={`file-preview ${!loading && !error && file ? `file-preview-${file.kind}` : ''}`}>
-    {loading ? <div className="preview-loading" role="status" aria-label="正在读取文件"><i /><i /><i /></div> : error ? <div className="preview-empty"><FileText size={24} /><p>无法预览这个文件</p><span role="alert">{error}</span><button type="button" className="button" onClick={() => setRevision(value => value + 1)}>重试</button></div> : file && <>
-      {file.truncated && <p className="preview-notice">文件较大，当前显示前 1 MB。可在默认应用中查看完整内容。</p>}
+    {loading ? <div className="preview-loading" role="status" aria-label="Loading file"><i /><i /><i /></div> : error ? <div className="preview-empty"><FileText size={24} /><p>Unable to preview this file</p><span role="alert">{error}</span><button type="button" className="button" onClick={() => setRevision(value => value + 1)}>Retry</button></div> : file && <>
+      {file.truncated && <p className="preview-notice">Showing the first 1 MB. Open in the default app to view the full file.</p>}
       <FileNavigationContext.Provider value={fileNavigation}>
         {file.kind === 'markdown' ? <MarkdownContent content={file.text || ''} decorateFiles={false} />
-          : file.kind === 'text' ? <pre className="file-text" tabIndex={0}>{file.text || '（空文件）'}</pre>
-            : file.kind === 'image' ? <img className="file-image" src={file.dataUrl} alt={file.name} onError={() => setError('图片格式无效或文件已损坏。')} />
-              : file.kind === 'pdf' && file.dataUrl ? <Suspense fallback={<p className="preview-notice">正在加载 PDF 预览…</p>}><PdfPreview dataUrl={file.dataUrl} /></Suspense>
-                : <div className="preview-empty"><FileText size={28} /><p>{file.name}</p><span>{file.notice || (file.canOpen ? '此文件可在默认应用中查看。' : '此格式暂不支持预览，可在文件夹中查看。')}</span><button type="button" className="button" onClick={file.canOpen ? onOpen : onReveal}>{file.canOpen ? '用默认应用打开' : '在文件夹中显示'}</button></div>}
+          : file.kind === 'text' ? <pre className="file-text" tabIndex={0}>{file.text || '(Empty file)'}</pre>
+            : file.kind === 'image' ? <img className="file-image" src={file.dataUrl} alt={file.name} onError={() => setError('Invalid image format or damaged file.')} />
+              : file.kind === 'pdf' && file.dataUrl ? <Suspense fallback={<p className="preview-notice">Loading PDF preview…</p>}><PdfPreview dataUrl={file.dataUrl} /></Suspense>
+                : <div className="preview-empty"><FileText size={28} /><p>{file.name}</p><span>{file.notice || (file.canOpen ? 'Open this file in the default app.' : 'Preview is unavailable for this format. You can show the file in its folder.')}</span><button type="button" className="button" onClick={file.canOpen ? onOpen : onReveal}>{file.canOpen ? 'Open in default app' : 'Show in folder'}</button></div>}
       </FileNavigationContext.Provider>
     </>}
     </div>

@@ -249,7 +249,7 @@ function dispatch(request) {
     event(s, 'ModelRequestStarted', { request_number: 1 })
     if (artifactTask) {
       artifactScenario(s, p.text)
-    } else if (p.text.includes('可控执行')) {
+    } else if (p.text.includes('可控执行') || process.env.PRAXIS_UI_TEST_CONTROLLED_INPUT === '1') {
       // These turns advance only when an integration test sends test_events.
       // Avoid timers so assertions can observe every intermediate render.
     } else if (p.text.includes('工具展示')) {

@@ -65,14 +65,10 @@ function element(tagName: string, className: string, children: ElementContent[],
 
 function fileGroup(links: Element[]): Element {
   return element('section', 'file-reference-group', [
-    element('div', 'file-reference-heading', [
-      element('span', 'file-reference-title', [{ type: 'text', value: '相关文件' }]),
-      element('span', 'file-reference-count', [{ type: 'text', value: String(links.length) }])
-    ]),
     element('ul', 'file-reference-list', links.map(link => element('li', 'file-reference-item', [{
       ...link, properties: { ...link.properties, className: ['file-reference-row'] }
     }])))
-  ], { ariaLabel: '相关文件' })
+  ], { ariaLabel: 'Related files' })
 }
 
 // Work on parsed Markdown, so reference links, escapes and labels stay intact.
@@ -93,7 +89,7 @@ export function rehypeFileReferences() {
         links.push(...block)
         end += 1
       }
-      output.push(...(links.length > 1 ? [fileGroup(links)] : root.children.slice(index, end)))
+      output.push(fileGroup(links))
       index = end
     }
     root.children = output

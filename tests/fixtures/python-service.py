@@ -6,7 +6,7 @@ from threading import Event
 
 from praxis_agent.agent import Agent
 from praxis_agent.execution import current_handle
-from praxis_agent.model import ModelResponse
+from praxis_agent.model import FunctionCall, ModelResponse
 from praxis_agent.planning import RunState
 from praxis_agent.service import __main__ as service
 from praxis_agent.service.manager import SessionManager
@@ -17,6 +17,27 @@ from praxis_agent.tools import create_default_registry
 class Model:
     def create_response(self, items, tools, on_text_delta=None):
         users = [item for item in items if isinstance(item, dict) and item.get("role") == "user"]
+        if users and "approval example" in str(users[-1].get("content")):
+            call_id = "approval-example"
+            result = next((item for item in reversed(items) if isinstance(item, dict)
+                           and item.get("type") == "function_call_output" and item.get("call_id") == call_id), None)
+            if result is None:
+                command = "echo praxis-approval"
+                if "long" in str(users[-1].get("content")):
+                    command += "-" + "visible-command-" * 12
+                arguments = json.dumps({"command": command})
+                call = FunctionCall(call_id, "run_command", arguments)
+                return ModelResponse(({"type": "function_call", "call_id": call_id,
+                                       "name": call.name, "arguments": arguments},), "", (call,))
+            output = result["output"]
+            # The context manager prefixes model-visible tool results with an ID.
+            if output.startswith("[message_id="):
+                output = output.split("\n", 1)[1]
+            succeeded = json.loads(output)["success"]
+            text = "Command approved and completed." if succeeded else "Command rejected without execution."
+            if on_text_delta:
+                on_text_delta(text)
+            return ModelResponse(({"role": "assistant", "content": text},), text, ())
         if users and "hold this turn" in str(users[-1].get("content")):
             release = Event()
             handle = current_handle()

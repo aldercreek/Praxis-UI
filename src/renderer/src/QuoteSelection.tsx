@@ -127,6 +127,14 @@ export function QuoteSelection({ rootRef, sessionKey, onQuote }: QuoteSelectionP
     const onFocus = (event: FocusEvent) => {
       if (event.target instanceof Node && !root.contains(event.target) && !popupRef.current?.contains(event.target)) dismiss()
     }
+    const onScroll = (event: Event) => {
+      const selection = document.getSelection()
+      // A tool may keep scrolling its output while the user selects an older
+      // answer. Only movement of the selected text invalidates the popup anchor.
+      if (event.target === document || event.target === window
+        || event.target instanceof Element && (Boolean(selection?.anchorNode && event.target.contains(selection.anchorNode))
+          || Boolean(selection?.focusNode && event.target.contains(selection.focusNode)))) dismiss()
+    }
     const onVisibility = () => { if (document.hidden) onPointerCancel() }
 
     document.addEventListener('selectionchange', schedule)
@@ -136,7 +144,7 @@ export function QuoteSelection({ rootRef, sessionKey, onQuote }: QuoteSelectionP
     document.addEventListener('keydown', onKeyDown)
     document.addEventListener('focusin', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
-    window.addEventListener('scroll', dismiss, true)
+    window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', dismiss)
     window.addEventListener('blur', onPointerCancel)
     return () => {
@@ -148,7 +156,7 @@ export function QuoteSelection({ rootRef, sessionKey, onQuote }: QuoteSelectionP
       document.removeEventListener('keydown', onKeyDown)
       document.removeEventListener('focusin', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
-      window.removeEventListener('scroll', dismiss, true)
+      window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', dismiss)
       window.removeEventListener('blur', onPointerCancel)
       dismissRef.current = () => {}
@@ -163,12 +171,12 @@ export function QuoteSelection({ rootRef, sessionKey, onQuote }: QuoteSelectionP
 
   if (!candidate || candidate.sessionKey !== sessionKey) return null
   return createPortal(<div ref={popupRef} className="quote-selection" style={{ position: 'fixed', left: position?.left, top: position?.top, visibility: position ? undefined : 'hidden' }}>
-    <button type="button" className="quote-selection-button" aria-label="引用选中文字" onMouseDown={event => event.preventDefault()} onClick={() => {
+    <button type="button" className="quote-selection-button" aria-label="Quote selected text" onMouseDown={event => event.preventDefault()} onClick={() => {
       if (!candidate.source.isConnected || !rootRef.current?.contains(candidate.source)) { dismissRef.current(); return }
       const quote = candidate.quote
       dismissRef.current()
       document.getSelection()?.removeAllRanges()
       onQuote(quote)
-    }}><Quote size={12} aria-hidden="true" />引用</button>
+    }}><Quote size={12} aria-hidden="true" />Quote</button>
   </div>, document.body)
 }

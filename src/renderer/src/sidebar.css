@@ -1,0 +1,87 @@
+.sidebar.praxis-sidebar, .ps-context-menu {
+  --ps-font: var(--font-ui);
+  font-family: var(--ps-font);
+  font-synthesis: auto;
+  -webkit-font-smoothing: antialiased;
+}
+.sidebar.praxis-sidebar {
+  width: 280px;
+  flex: 0 0 280px;
+  min-height: 0;
+  background: #f7f7f7;
+  border-right: 1px solid #ededed;
+  color: #000000e6;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: normal;
+}
+.sidebar.praxis-sidebar.collapsed { display: none; }
+.praxis-sidebar .ps-brand-row { height: 64px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 20px; -webkit-app-region: drag; }
+.praxis-sidebar .ps-brand { display: flex; align-items: center; gap: 8px; font-size: 17px; line-height: 25px; font-weight: 600; letter-spacing: -.3px; }
+.praxis-sidebar .ps-brand-mark { width: 25px; height: 25px; border-radius: 7px; background: #222; display: grid; place-items: center; }
+.praxis-sidebar .ps-brand-mark img { width: 22px; height: 22px; filter: brightness(0) invert(1); }
+.praxis-sidebar .ps-icon-button { display: inline-flex; justify-content: center; align-items: center; flex: none; width: 28px; height: 28px; padding: 4px; border: 0; border-radius: 6px; background: transparent; color: #6b6b6b; -webkit-app-region: no-drag; }
+.praxis-sidebar .ps-icon-button:hover { background: #ebebeb; color: #000000e6; }
+.praxis-sidebar .ps-brand-row > .ps-icon-button { margin-left: auto; }
+.praxis-sidebar .ps-sidebar-content { padding: 0 12px; min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.praxis-sidebar .ps-new-chat { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 5px 12px; margin: 6px 0 2px; text-align: left; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 14px; line-height: 22px; }
+.praxis-sidebar .ps-new-chat:hover, .praxis-sidebar .ps-new-chat.active { background: #ebebeb; }
+.praxis-sidebar .ps-new-chat.active { font-weight: 500; }
+.praxis-sidebar .ps-new-chat > span { flex: 1; }
+.praxis-sidebar .ps-new-chat { transition: background-color .15s, color .15s; }
+.praxis-sidebar .ps-session-search { min-height: 36px; display: flex; align-items: center; gap: 9px; padding: 7px 11px; color: #6b6b6b; }
+.praxis-sidebar .ps-session-search input { padding: 0; width: 0; min-width: 0; flex: 1; border: 0; background: none; outline: 0; font: inherit; font-size: 13px; line-height: 22px; color: #000000e6; }
+.praxis-sidebar .ps-session-search input::placeholder { color: #6b6b6b; opacity: 1; }
+.praxis-sidebar .ps-session-search input::-webkit-search-cancel-button { display: none; }
+.praxis-sidebar .ps-session-search .ps-icon-button { height: 22px; width: 22px; margin-right: -5px; }
+.praxis-sidebar .ps-section-label { padding: 0 12px; margin: 26px 0 7px; color: #6b6b6b; font-size: 12px; line-height: 20px; }
+.praxis-sidebar .ps-session-list { min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #0003 transparent; padding-bottom: 4px; }
+.praxis-sidebar .ps-session { display: flex; align-items: center; gap: 9px; min-width: 0; width: 100%; min-height: 34px; margin: 1px 0; padding: 5px 12px; border: 0; border-radius: 8px; background: transparent; color: #000000b3; text-align: left; font: 400 14px/24px var(--ps-font); }
+.praxis-sidebar .ps-session:hover { background: #efefef; }
+.praxis-sidebar .ps-session.selected { background: #e8e8e8; color: #000000e6; font-weight: 500; }
+.praxis-sidebar .ps-session.context-target:not(.selected) { background: #ebebeb; color: #000000e6; }
+.praxis-sidebar .ps-session > .ps-session-title { position: relative; display: block; flex: 1; min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: clip; }
+.praxis-sidebar .ps-title-measure { position: absolute; left: 0; top: 0; visibility: hidden; width: max-content; white-space: nowrap; pointer-events: none; }
+.praxis-sidebar .ps-title-static { display: block; overflow: hidden; white-space: nowrap; }
+.praxis-sidebar .ps-session-title.overflows { mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
+.praxis-sidebar .ps-session-title.scrolling .ps-title-static { display: none; }
+.praxis-sidebar .ps-title-track { display: inline-flex; white-space: nowrap; flex-wrap: nowrap; animation: ps-title-scroll linear infinite; will-change: transform; vertical-align: top; }
+.praxis-sidebar .ps-title-track > span { flex: none; }
+.praxis-sidebar .ps-title-track > span + span { margin-left: 20px; }
+.praxis-sidebar .ps-session > .ps-session-pin { flex: none; color: #6b6b6b; }
+.praxis-sidebar .ps-sidebar-empty { padding: 20px 12px; max-width: none; color: #6b6b6b; font-size: 13px; line-height: 22px; }
+.praxis-sidebar .ps-sidebar-retry { display: block; border: 0; padding: 2px 0; margin-top: 4px; background: none; color: #000000e6; text-decoration: underline; text-underline-offset: 3px; font: inherit; }
+.praxis-sidebar .ps-session-skeleton { display: flex; flex-direction: column; gap: 24px; padding: 13px 12px; }
+.praxis-sidebar .ps-session-skeleton i { display: block; height: 10px; width: 88%; border-radius: 3px; background: #e8e8e8; }
+.praxis-sidebar .ps-session-skeleton i:nth-child(2) { width: 70%; }
+.praxis-sidebar .ps-session-skeleton i:nth-child(3) { width: 83%; }
+.praxis-sidebar .ps-session-skeleton i:nth-child(4) { width: 62%; }
+.praxis-sidebar .ps-sidebar-footer { margin-top: auto; padding: 18px 22px; flex: none; }
+.praxis-sidebar .ps-sidebar-feedback { margin-bottom: 8px; font-size: 12px; line-height: 20px; color: #6b6b6b; }
+.praxis-sidebar .ps-footer-actions { display: flex; align-items: center; gap: 8px; }
+.praxis-sidebar .ps-workspace-picker { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 24px; border: 0; padding: 0; background: transparent; color: #000000b3; font: 400 13px/24px var(--ps-font); text-align: left; }
+.praxis-sidebar .ps-workspace-picker > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.praxis-sidebar .ps-workspace-picker:hover:not(:disabled) { color: #000000e6; }
+.praxis-sidebar button:focus-visible { outline: 2px solid #777; outline-offset: -2px; }
+.ps-context-menu { position: fixed; z-index: 40; display: flex; flex-direction: column; gap: 2px; min-width: 216px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow: auto; padding: 8px; border: .5px solid #dedede; border-radius: 16px; background: #fff; color: #000000e6; box-shadow: 0 2px 8px #0000001c; outline: 0; animation: ps-menu-in 150ms ease-out; }
+.ps-context-menu > button { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; min-height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: inherit; text-align: left; font: 400 14px/22px var(--ps-font); white-space: nowrap; }
+.ps-context-menu > button > svg { flex: none; stroke-width: 1.5; }
+.ps-context-menu > button:hover, .ps-context-menu > button:focus { outline: 0; background: #f1f1f1; }
+.ps-context-menu > .ps-menu-danger { color: #d93036; }
+.ps-context-menu > .ps-menu-danger:hover, .ps-context-menu > .ps-menu-danger:focus { background: #fff1f1; }
+.ps-menu-divider { height: 1px; min-height: 1px; background: #ededed; margin: 6px 0; }
+@keyframes ps-title-scroll { from { transform: translateX(0); } to { transform: translateX(calc(-1 * var(--ps-marquee-distance))); } }
+@keyframes ps-menu-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 1100px) { .sidebar.praxis-sidebar { width: 240px; flex-basis: 240px; } }
+@media (max-width: 850px) { .praxis-sidebar .ps-session { padding-inline: 10px; } }
+@media (max-width: 640px) {
+  .sidebar.praxis-sidebar { position: absolute; inset: 0 auto 0 0; z-index: 30; width: 224px; flex-basis: 224px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .praxis-sidebar .ps-title-track { display: none; animation: none; }
+  .praxis-sidebar .ps-session-title.scrolling .ps-title-static { display: block; }
+  .praxis-sidebar .ps-session-title.overflows { mask-image: none; }
+  .praxis-sidebar .ps-title-static { text-overflow: ellipsis; }
+  .praxis-sidebar .ps-new-chat { transition: none; }
+  .ps-context-menu { animation: none; }
+}

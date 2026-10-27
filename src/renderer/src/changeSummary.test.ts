@@ -50,7 +50,9 @@ it('quotes retain multiline source and the user request through a text-only prot
   const text = '只调整这段的措辞'
   const quote = { text: '第一段\n\n> 原文中的引用\n第三段' }
   const payload = formatQuotedInput(text, quote)
+  expect(payload.startsWith('Quoted response:\n')).toBe(true)
   expect(readQuotedInput(payload)).toEqual({ text, quote: quote.text })
+  expect(readQuotedInput(payload.replace('Quoted response:\n', '引用助手回复：\n'))).toEqual({ text, quote: quote.text })
   expect(formatQuotedInput(text)).toBe(text)
   expect(readQuotedInput('普通消息')).toBeUndefined()
 })

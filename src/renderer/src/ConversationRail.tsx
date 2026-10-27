@@ -23,6 +23,7 @@ export function ConversationRail({ sessionId, messages, scrollRef, onNavigate }:
   const buttons = useRef(new Map<string, HTMLButtonElement>())
   const closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const interacting = useRef(false)
+  const previewInput = useRef<'pointer' | 'keyboard'>('pointer')
   const popupId = useId()
   const preview = items.find(item => item.messageId === previewId)
   const previewIndex = items.findIndex(item => item.messageId === previewId)
@@ -130,7 +131,7 @@ export function ConversationRail({ sessionId, messages, scrollRef, onNavigate }:
 
   if (!items.length) return null
   return <>
-    <nav className="conversation-rail" aria-label="对话导航" ref={nav} onPointerEnter={keepPreview} onPointerLeave={leavePreview}>
+    <nav className="conversation-rail" aria-label="Conversation navigation" ref={nav} onPointerEnter={keepPreview} onPointerLeave={leavePreview}>
       <div className="conversation-rail-list" ref={list} onWheel={() => setPreviewId(undefined)} onKeyDown={event => {
         const index = items.findIndex(item => buttons.current.get(item.messageId) === event.target)
         if (index < 0) return
@@ -148,28 +149,30 @@ export function ConversationRail({ sessionId, messages, scrollRef, onNavigate }:
         {items.map((item, index) => <button key={item.messageId} type="button" className="conversation-tick"
           style={{ '--tick-width': (previewIndex < 0 ? 6 : [22, 16, 10][Math.abs(index - previewIndex)] || 6) + 'px' } as CSSProperties}
           ref={element => { if (element) buttons.current.set(item.messageId, element); else buttons.current.delete(item.messageId) }}
-          aria-label={`第 ${index + 1} 条提问：${item.question}${bookmarks.has(item.bookmarkKey) ? '（已标记）' : ''}`}
+          aria-label={`Question ${index + 1}: ${item.question}${bookmarks.has(item.bookmarkKey) ? ' (bookmarked)' : ''}`}
           aria-current={current === item.messageId ? 'location' : undefined} aria-haspopup="dialog"
           aria-expanded={previewId === item.messageId} aria-controls={previewId === item.messageId ? popupId : undefined}
           data-bookmarked={bookmarks.has(item.bookmarkKey)} tabIndex={(current || items[0].messageId) === item.messageId ? 0 : -1}
-          onPointerEnter={() => showPreview(item.messageId)} onFocus={() => showPreview(item.messageId)} onClick={() => jump(item.messageId)}>
+          onPointerEnter={() => { if (previewInput.current === 'pointer') showPreview(item.messageId) }}
+          onPointerMove={() => { previewInput.current = 'pointer'; showPreview(item.messageId) }}
+          onFocus={() => { previewInput.current = 'keyboard'; showPreview(item.messageId) }} onClick={() => jump(item.messageId)}>
           <span aria-hidden="true" />
         </button>)}
       </div>
     </nav>
-    {preview && createPortal(<div id={popupId} ref={popup} className="conversation-preview" role="dialog" aria-label="对话预览"
+    {preview && createPortal(<div id={popupId} ref={popup} className="conversation-preview" role="dialog" aria-label="Conversation preview"
       style={{ ...position, visibility: position ? undefined : 'hidden' }} onPointerEnter={keepPreview} onPointerLeave={leavePreview}>
       <button type="button" className="conversation-preview-content" onClick={() => jump(preview.messageId)}>
-        <strong>{preview.question}</strong><span>{preview.answer || '暂时没有回复'}</span>
+        <strong>{preview.question}</strong><span>{preview.answer || 'No response yet'}</span>
       </button>
-      <button type="button" className="conversation-bookmark" aria-label={bookmarks.has(preview.bookmarkKey) ? '取消标记' : '标记这段对话'}
-        title={bookmarks.has(preview.bookmarkKey) ? '取消标记' : '标记这段对话'} aria-pressed={bookmarks.has(preview.bookmarkKey)} onClick={() => {
+      <button type="button" className="conversation-bookmark" aria-label={bookmarks.has(preview.bookmarkKey) ? 'Remove bookmark' : 'Bookmark conversation'}
+        title={bookmarks.has(preview.bookmarkKey) ? 'Remove bookmark' : 'Bookmark conversation'} aria-pressed={bookmarks.has(preview.bookmarkKey)} onClick={() => {
           const next = new Set(bookmarks)
           if (next.has(preview.bookmarkKey)) next.delete(preview.bookmarkKey)
           else next.add(preview.bookmarkKey)
           setBookmarks(next)
           try { localStorage.setItem(storageKey, JSON.stringify([...next])); setSaveError('') }
-          catch { setSaveError('标记暂时只保留在当前窗口。') }
+          catch { setSaveError('Bookmarks are only saved in this window.') }
         }}><Bookmark size={16} fill={bookmarks.has(preview.bookmarkKey) ? 'currentColor' : 'none'} /></button>
       {saveError && <p className="conversation-bookmark-error" role="status">{saveError}</p>}
     </div>, document.body)}

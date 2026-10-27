@@ -1,12 +1,16 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, Check, ChevronRight, Copy, FileCode2, FileImage, FileSpreadsheet, FileText, Presentation } from 'lucide-react'
+import { Archive, Check, Copy, FileCode2, FileImage, FileSpreadsheet, FileText, Presentation } from 'lucide-react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { contentLink, fileName, isAbsoluteFileReference, safeContentUrl } from './fileLinks'
 import { containsImage, referenceKind, referenceName, referenceText, rehypeFileReferences } from './fileReferences'
+import { FilePathTooltip } from './FilePathTooltip'
+import type { TurnChanges } from './changeSummary'
+import { fileReferenceChange } from './fileReferenceChange'
 
 export interface FileNavigation { workspace: string; baseFile?: string; allowRelativeFiles?: boolean; decorateFiles?: boolean; openFile: (path: string) => void; onError: (message: string) => void }
 export const FileNavigationContext = createContext<FileNavigation | undefined>(undefined)
+export const FileChangesContext = createContext<{ changes?: TurnChanges; openChanges: (turnId: string, fileId?: string) => void } | undefined>(undefined)
 
 function ReferenceName({ name }: { name: string }) {
   const ending = name.match(/(?:\.[a-z\d]{1,12})?(?::\d+(?::\d+)?|#L?\d+(?:-L?\d+)?)?$/i)?.[0] || ''
@@ -16,6 +20,7 @@ function ReferenceName({ name }: { name: string }) {
 
 function ContentLink({ href, children, label, row, imageLink }: { href?: string; children?: React.ReactNode; label: string; row: boolean; imageLink: boolean }) {
   const navigation = useContext(FileNavigationContext)
+  const turnFiles = useContext(FileChangesContext)
   const link = href ? contentLink(href, navigation?.baseFile) : undefined
   if (!link) return <span>{children}</span>
   if (link.kind === 'file' && navigation?.decorateFiles !== false && !imageLink) {
@@ -23,21 +28,21 @@ function ContentLink({ href, children, label, row, imageLink }: { href?: string;
     const description = label && label !== name && label !== href && label !== link.path ? label : ''
     const Icon = { code: FileCode2, image: FileImage, sheet: FileSpreadsheet, slides: Presentation, archive: Archive, document: FileText }[referenceKind(name)]
     const available = Boolean(navigation && (navigation.allowRelativeFiles !== false || isAbsoluteFileReference(link.path)))
+    const matched = row ? fileReferenceChange(link.path, navigation?.workspace || '', turnFiles?.changes, available) : undefined
+    const change = matched?.file
+    const totals = change?.edits.reduce((sum, edit) => ({ added: sum.added + edit.added, removed: sum.removed + edit.removed }), { added: 0, removed: 0 })
     const className = row ? 'file-reference-row' : 'file-reference-inline'
     const location = isAbsoluteFileReference(link.path) ? link.path : `${navigation?.workspace.replace(/[/\\]+$/, '')}/${link.path}`
-    const title = available ? [description, location].filter(Boolean).join('\n') : [description, '子任务未提供完整文件路径', link.path].filter(Boolean).join('\n')
+    const title = available ? [description, location].filter(Boolean).join('\n') : [description, 'The subtask did not provide an absolute file path', link.path].filter(Boolean).join('\n')
     const content = row ? <>
-      <span className="file-reference-icon" aria-hidden="true"><Icon size={16} /></span>
-      <span className="file-reference-details">
-        <span className="file-reference-label">{description ? children : <ReferenceName name={name} />}</span>
-        {description && <span className="file-reference-meta"><ReferenceName name={name} /></span>}
-      </span>
-      {available && <ChevronRight size={13} className="file-reference-arrow" aria-hidden="true" />}
+      <span className="file-reference-icon" aria-hidden="true"><FileText size={16} /></span>
+      <ReferenceName name={name} />
+      {totals && <span className="file-stats" aria-label={`${change!.edits.length > 1 ? 'Total changes: ' : ''}${totals.added} lines added, ${totals.removed} lines removed`}><span className="added">+{totals.added}</span><span className="removed">−{totals.removed}</span></span>}
     </> : <><Icon size={13} aria-hidden="true" /><ReferenceName name={name} /></>
     if (!available || !navigation) return <span className={className} title={title} aria-disabled="true">{content}</span>
-    return <a href={href} className={className} title={title} aria-label={(row ? [description, name] : [name, description]).filter(Boolean).join(' · ')} onClick={event => { event.preventDefault(); navigation.openFile(link.path) }}>{content}</a>
+    return <FilePathTooltip path={title}><a href={href} className={className} aria-label={(row ? [description, name] : [name, description]).filter(Boolean).join(' · ')} onClick={event => { event.preventDefault(); if (matched && turnFiles) turnFiles.openChanges(matched.turnId, matched.file.id); else navigation.openFile(link.path) }}>{content}</a></FilePathTooltip>
   }
-  if (link.kind === 'file' && navigation?.allowRelativeFiles === false && !isAbsoluteFileReference(link.path)) return <span title="子任务未提供完整文件路径">{children}</span>
+  if (link.kind === 'file' && navigation?.allowRelativeFiles === false && !isAbsoluteFileReference(link.path)) return <span title="The subtask did not provide an absolute file path">{children}</span>
   return <a href={href} onClick={event => {
     event.preventDefault()
     if (link.kind === 'file') navigation?.openFile(link.path)
@@ -61,8 +66,8 @@ function ContentImage({ src, alt }: { src?: string | Blob; alt?: string }) {
     return () => { active = false }
   }, [path, navigation?.workspace, imageKey])
   const hasImage = Boolean(image && image.key === imageKey)
-  const label = alt || fileName(path || (typeof src === 'string' ? src : '图片'))
-  return <button type="button" className={`content-image ${hasImage ? 'has-image' : ''}`} aria-label={`查看图片：${label}`} onClick={() => {
+  const label = alt || fileName(path || (typeof src === 'string' ? src : 'Image'))
+  return <button type="button" className={`content-image ${hasImage ? 'has-image' : ''}`} aria-label={`View image: ${label}`} onClick={() => {
     if (path) navigation?.openFile(path)
     else if (link?.kind === 'external') void window.praxis?.openExternal(link.url).catch(error => navigation?.onError(String(error)))
   }} disabled={!link || link.kind === 'anchor' || link.kind === 'file' && !path}>

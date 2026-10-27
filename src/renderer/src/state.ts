@@ -265,7 +265,7 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
       }
       break
     case 'ChildAgentStatus':
-      next.messages = updateMessage(current.messages, `agent:${event.agent_id}`, message => ({ ...message, id: `agent:${event.agent_id}`, role: 'system', content: textOf(data.task_summary) || message?.content || 'Subtask', turn_id: event.turn_id, agent_id: event.agent_id, status: textOf(data.status) }))
+      next.messages = updateMessage(current.messages, `agent:${event.turn_id}:${event.agent_id}`, message => ({ ...message, id: `agent:${event.turn_id}:${event.agent_id}`, role: 'system', content: textOf(data.task_summary) || message?.content || 'Subtask', turn_id: event.turn_id, agent_id: event.agent_id, status: textOf(data.status) }))
       break
     case 'ChildAgentMessage':
       next.messages = [...current.messages, { id: `child-message:${event.sequence}`, role: 'assistant', content: textOf(data.content), agent_id: event.agent_id, turn_id: event.turn_id }]
@@ -292,7 +292,7 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
       next.messages = finalizeMessages(current.messages, event, true, true)
       if (!child) {
         if (next.summary) next.summary = { ...next.summary, status: 'stopping' }
-        next.messages = [...next.messages, { id: `cancelled:${event.turn_id}`, role: 'system', content: '已停止', status: 'cancelled', turn_id: event.turn_id }]
+        next.messages = [...next.messages, { id: `cancelled:${event.turn_id}`, role: 'system', content: 'Stopped', status: 'cancelled', turn_id: event.turn_id }]
         finishTurn(next, event.turn_id, 'cancelled')
         next.activity = 'Finishing task'
         next.approvals = []

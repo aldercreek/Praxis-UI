@@ -1,0 +1,5 @@
+.transcript-turn .process-middle { font-size: 13px; line-height: 22px; gap: 6px; padding: 0; }
+.transcript-turn .process-middle > .disclosure-icon { opacity: 0; }
+.transcript-turn .process-middle:hover > .disclosure-icon,
+.transcript-turn .process-middle:focus-visible > .disclosure-icon,
+.transcript-turn .process-middle[aria-expanded="true"] > .disclosure-icon { opacity: 1; }

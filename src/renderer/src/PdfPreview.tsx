@@ -22,9 +22,9 @@ export default function PdfPreview({ dataUrl }: { dataUrl: string }) {
     const data = Uint8Array.from(atob(dataUrl.slice(dataUrl.indexOf(',') + 1)), character => character.charCodeAt(0))
     const task = getDocument({ data, useSystemFonts: true })
     // Password-protected files need an external reader; do not leave the preview pending.
-    task.onPassword = () => { if (active) setError('此 PDF 需要密码，请使用默认应用打开。'); void task.destroy() }
+    task.onPassword = () => { if (active) setError('This PDF requires a password. Open it in the default app.'); void task.destroy() }
     void task.promise.then(value => { if (active) setDocument(value) }).catch(reason => {
-      if (active) setError(previous => previous || `无法预览此 PDF：${String(reason.message || reason)}`)
+      if (active) setError(previous => previous || `Unable to preview this PDF: ${String(reason.message || reason)}`)
     })
     return () => { active = false; void task.destroy() }
   }, [dataUrl])
@@ -57,18 +57,18 @@ export default function PdfPreview({ dataUrl }: { dataUrl: string }) {
       render = page.render({ canvas: canvas.current, viewport, transform: [ratio, 0, 0, ratio, 0, 0] })
       return render.promise
     }).then(() => { if (active) setRendering(false) }).catch(reason => {
-      if (active && reason?.name !== 'RenderingCancelledException') { setError(`此页无法预览：${String(reason.message || reason)}`); setRendering(false) }
+      if (active && reason?.name !== 'RenderingCancelledException') { setError(`Unable to preview this page: ${String(reason.message || reason)}`); setRendering(false) }
     })
     return () => { active = false; render?.cancel() }
   }, [document, pageNumber, width])
 
   return <div className="pdf-viewer" ref={host}>
-    <div className="pdf-toolbar"><button type="button" className="icon-button" aria-label="上一页" disabled={!document || pageNumber <= 1} onClick={() => setPageNumber(value => value - 1)}><ChevronLeft size={16} /></button>
+    <div className="pdf-toolbar"><button type="button" className="icon-button" aria-label="Previous page" disabled={!document || pageNumber <= 1} onClick={() => setPageNumber(value => value - 1)}><ChevronLeft size={16} /></button>
       <span>{document ? `${pageNumber} / ${document.numPages}` : 'PDF'}</span>
-      <button type="button" className="icon-button" aria-label="下一页" disabled={!document || pageNumber >= document.numPages} onClick={() => setPageNumber(value => value + 1)}><ChevronRight size={16} /></button></div>
+      <button type="button" className="icon-button" aria-label="Next page" disabled={!document || pageNumber >= document.numPages} onClick={() => setPageNumber(value => value + 1)}><ChevronRight size={16} /></button></div>
     <div className="pdf-page" aria-busy={!error && (!document || rendering)}>
-      {error ? <p className="preview-notice" role="status">{error}</p> : !document && <p className="preview-notice">正在读取 PDF…</p>}
-      <canvas ref={canvas} hidden={Boolean(error)} aria-label={`PDF 第 ${pageNumber} 页`} role="img" />
+      {error ? <p className="preview-notice" role="status">{error}</p> : !document && <p className="preview-notice">Loading PDF…</p>}
+      <canvas ref={canvas} hidden={Boolean(error)} aria-label={`PDF page ${pageNumber}`} role="img" />
     </div>
   </div>
 }

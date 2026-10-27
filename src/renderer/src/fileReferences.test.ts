@@ -1,7 +1,8 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { FileNavigationContext, MarkdownContent } from './MarkdownContent'
+import { FileChangesContext, FileNavigationContext, MarkdownContent } from './MarkdownContent'
+import type { TurnChanges } from './changeSummary'
 
 function render(content: string, options: Partial<Parameters<typeof MarkdownContent>[0]> = {}): string {
   return renderToStaticMarkup(createElement(FileNavigationContext.Provider, {
@@ -15,7 +16,7 @@ describe('file references in Markdown', () => {
     const html = render('[**项目说明**](docs/brief.md) · [报告][report]\n\n[图片](images/chart.png)\n\n[report]: files/report.pdf')
     expect(html.match(/class="file-reference-group"/g)).toHaveLength(1)
     expect(html.match(/class="file-reference-row"/g)).toHaveLength(3)
-    for (const content of ['brief.md', '<strong>项目说明</strong>', 'report.pdf', '报告', 'chart.png', '图片']) expect(html).toContain(content)
+    for (const content of ['brief.md', '项目说明', 'report.pdf', '报告', 'chart.png', '图片']) expect(html).toContain(content)
     expect(html.replace(/<[^>]+>/g, '')).not.toContain(' · ')
   })
 
@@ -73,5 +74,36 @@ describe('file references in Markdown', () => {
     expect(html).not.toContain('href="a.ts"')
     expect(html).toContain('href="/project/worker/b.ts"')
     expect(html).toContain('子任务文件')
+  })
+})
+
+describe('changed file chips', () => {
+  const changes: TurnChanges = { turnId: 'historical-turn', files: [
+    { id: 'parent', path: 'docs/my file.ts', previewPath: 'docs/my file.ts', edits: [{ id: 'edit-a', diff: '+new', added: 3, removed: 2 }] },
+    { id: 'child', path: 'docs/my file.ts', source: 'worker', edits: [{ id: 'edit-b', diff: '+child', added: 20, removed: 10 }] }
+  ] }
+  const renderChanged = (content: string, allowRelativeFiles = true) => renderToStaticMarkup(createElement(FileNavigationContext.Provider, {
+    value: { workspace: '/project', openFile: () => {}, onError: () => {} },
+    children: createElement(FileChangesContext.Provider, {
+      value: { changes, openChanges: () => {} }, children: createElement(MarkdownContent, { content, allowRelativeFiles })
+    })
+  }))
+
+  it('shows accurate stats on encoded matching file rows and uses the common file icon', () => {
+    const html = renderChanged('[文件](docs/my%20file.ts)')
+    expect(html).toContain('3 lines added, 2 lines removed')
+    expect(html).not.toContain('20 lines added')
+    expect(html).toContain('lucide-file-text')
+    expect(html).not.toContain('lucide-file-code')
+    const inline = renderChanged('查看[文件](docs/my%20file.ts)。')
+    expect(inline).toContain('lucide-file-code')
+    expect(inline).not.toContain('class="file-stats"')
+  })
+
+  it('does not show parent changes on a disabled child row with the same relative path', () => {
+    const html = renderChanged('[子任务文件](docs/my%20file.ts)', false)
+    expect(html).toContain('aria-disabled="true"')
+    expect(html).not.toContain('class="file-stats"')
+    expect(html).not.toContain('href="docs/my%20file.ts"')
   })
 })

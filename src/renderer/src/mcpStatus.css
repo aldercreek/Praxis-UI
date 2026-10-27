@@ -1,17 +1,7 @@
-.mcp-dialog { width: min(400px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; overflow: hidden; border: 0; border-radius: 10px; background: var(--surface); color: var(--ink); box-shadow: 0 12px 40px oklch(0.2 0 0 / 0.16); }
-.mcp-dialog::backdrop { background: oklch(0.2 0 0 / 0.16); }
-.mcp-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px 10px 18px; border-bottom: 1px solid var(--border); }
-.mcp-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--text-body); font-weight: 600; }
-.mcp-header h2 svg { color: var(--muted); }
-.mcp-actions { display: flex; align-items: center; gap: 2px; }
-.mcp-actions .icon-button { width: 28px; height: 28px; }
-.mcp-status-content { padding: 6px 18px; max-height: min(360px, calc(100dvh - 100px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; font-size: var(--text-body); }
-.mcp-status-content p { margin: 16px 0; color: var(--muted); font-size: var(--text-small); overflow-wrap: anywhere; }
-.mcp-status-content [role="alert"] { color: var(--error); }
 .mcp-status-content ul { list-style: none; padding: 0; margin: 0; }
 .mcp-status-content li { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 36px; padding: 7px 0; }
 .mcp-name { min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
-.mcp-state { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; color: var(--muted); font-size: var(--text-caption); line-height: 20px; }
+.mcp-state { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; color: var(--muted); font-size: 13px; line-height: 20px; }
 .mcp-state-connected { color: var(--success); }
 .mcp-state-retrying { color: var(--warning); }
 .mcp-state-failed, .mcp-state-disconnected { color: var(--error); }

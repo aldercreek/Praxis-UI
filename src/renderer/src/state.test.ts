@@ -102,6 +102,21 @@ describe('turn execution metadata', () => {
     const current = applyEvent(emptyConversation(), event('ChildAgentStatus', 1, { task_summary: 'Inspect tests', status: 'running' }, 'worker'))
     expect(current.messages[0]).toMatchObject({ role: 'system', turn_id: 'turn-a', agent_id: 'worker', content: 'Inspect tests' })
   })
+
+  it('keeps reused child status separate across parent turns and updates each row in place', () => {
+    let current = applyEvent(emptyConversation(), event('ChildAgentStatus', 1, { task_summary: 'Inspect tests', status: 'running' }, 'worker'))
+    current = applyEvent(current, event('ChildAgentStatus', 2, { status: 'idle' }, 'worker'))
+    expect(current.messages).toHaveLength(1)
+    expect(current.messages[0]).toMatchObject({ id: 'agent:turn-a:worker', content: 'Inspect tests', status: 'idle' })
+
+    current = applyEvent(current, { ...event('ChildAgentStatus', 3, { task_summary: 'Review the fix', status: 'running' }, 'worker'), turn_id: 'turn-b' })
+    const laterTurn = current.messages[1]
+    current = applyEvent(current, event('ChildAgentStatus', 4, { status: 'closed' }, 'worker'))
+    expect(current.messages).toHaveLength(2)
+    expect(current.messages[0]).toMatchObject({ id: 'agent:turn-a:worker', turn_id: 'turn-a', content: 'Inspect tests', status: 'closed' })
+    expect(current.messages[1]).toBe(laterTurn)
+    expect(current.messages[1]).toMatchObject({ id: 'agent:turn-b:worker', turn_id: 'turn-b', content: 'Review the fix', status: 'running' })
+  })
 })
 
 describe('conversation event reconciliation', () => {

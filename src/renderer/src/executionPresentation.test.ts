@@ -16,27 +16,27 @@ describe('execution status', () => {
   it('does not let older background commands replace the current turn status', () => {
     const conversation = active()
     conversation.messages = [{ id: 'old', role: 'tool', content: '', tool_name: 'run_command', status: 'running', turn_id: 'older' }]
-    expect(presentExecution(conversation).label).toBe('正在处理…')
+    expect(presentExecution(conversation).label).toBe('Working…')
     conversation.messages.push({ id: 'new', role: 'tool', content: '', tool_name: 'read_file', status: 'running', turn_id: 'current' })
-    expect(presentExecution(conversation).label).toBe('正在查看项目文件…')
+    expect(presentExecution(conversation).label).toBe('Reading project files…')
   })
 
   it('prioritizes approval and stopping over progress', () => {
     const conversation = active()
     conversation.approvals = [{ approval_id: 'approval', tool_name: 'run_command', arguments: {} }]
-    expect(presentExecution(conversation)).toEqual({ label: '等待你确认', tone: 'attention' })
+    expect(presentExecution(conversation)).toEqual({ label: 'Awaiting approval', tone: 'attention' })
     conversation.summary!.status = 'stopping'
-    expect(presentExecution(conversation).label).toBe('正在停止…')
+    expect(presentExecution(conversation).label).toBe('Stopping…')
   })
 
   it('reports the turn outcome without claiming unfinished steps succeeded', () => {
     const conversation = active()
     conversation.plan = [{ description: 'Run tests', status: 'pending' }]
     conversation.summary!.status = 'idle'
-    expect(presentExecution(conversation).label).toBe('本轮已结束')
+    expect(presentExecution(conversation).label).toBe('Task completed')
     conversation.summary!.status = 'failed'
-    expect(presentExecution(conversation)).toEqual({ label: '本轮执行失败', tone: 'failed' })
+    expect(presentExecution(conversation)).toEqual({ label: 'Task failed', tone: 'failed' })
     conversation.summary!.status = 'cancelled'
-    expect(presentExecution(conversation).label).toBe('已停止')
+    expect(presentExecution(conversation).label).toBe('Stopped')
   })
 })
