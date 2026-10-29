@@ -1,0 +1,58 @@
+.agent-dock { display: flex; align-items: center; gap: 8px; height: 36px; flex: 1; min-width: 0; }
+.agent-dock button { border: 0; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+.agent-dock-heading { display: flex; align-items: center; gap: 6px; flex: none; padding: 0 3px; height: 30px; border-radius: 5px; font-size: 13px !important; }
+.agent-dock-items { display: flex; align-items: stretch; min-width: 0; gap: 14px; height: 36px; }
+.agent-tooltip-anchor { display: flex; min-width: 0; max-width: 160px; }
+.agent-dock .agent-dock-item { display: flex; align-items: center; gap: 6px; position: relative; padding: 0 1px; min-width: 0; max-width: 160px; font-size: 14px; border-radius: 0; }
+.agent-dock-item span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.agent-dock-item svg { flex: none; }
+.agent-dock .agent-dock-item[aria-pressed=true] { color: var(--ink); }
+.agent-dock-item[aria-pressed=true]::after { content: ''; position: absolute; inset: auto 0 0; height: 1px; background: #444; }
+.agent-dock .agent-overflow { padding: 3px 4px; font-size: 12px; border-radius: 5px; flex: none; }
+.agent-dock-heading:hover, .agent-overflow:hover { background: var(--hover); }
+.agent-dock .agent-dock-item:hover { color: var(--ink); }
+.agent-idle-dot { display: inline-block; width: 5px; height: 5px; margin: 0 4px; border-radius: 50%; background: #777; flex: none; }
+.agent-returned { color: #087b45; }
+.agent-attention { color: #a24726; }
+.agent-menu { position: fixed; z-index: 35; background: var(--surface); padding: 6px; border: 1px solid var(--border); border-radius: 8px; overflow: auto; overscroll-behavior: contain; font: 400 14px/21px var(--font-ui); }
+.agent-menu-heading { display: flex; justify-content: space-between; align-items: center; padding: 3px 6px 7px 10px; color: var(--muted); font-size: 12px; }
+.agent-menu .icon-button { width: 26px; height: 26px; }
+.agent-list-item { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 9px 10px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; border-radius: 5px; cursor: pointer; }
+.agent-list-mark { display: flex; align-items: center; justify-content: center; flex: 0 0 16px; height: 21px; color: var(--muted); }
+.agent-list-copy { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.agent-list-title { white-space: normal; overflow-wrap: anywhere; }
+.agent-list-copy > small { color: var(--muted); font-size: 12px; line-height: 18px; }
+.agent-list-item:hover, .agent-list-item[aria-pressed=true] { background: var(--hover); }
+.agent-list-item:focus-visible { outline: 1px solid var(--muted); outline-offset: -1px; }
+.agent-tooltip { position: fixed; z-index: 60; max-width: min(340px, calc(100vw - 16px)); padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink); font: 400 13px/21px var(--font-ui); pointer-events: none; overflow-wrap: anywhere; }
+.agent-tooltip-title { display: block; }
+.agent-tooltip-status { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 18px; }
+.agent-panel { position: relative; display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; width: 520px; border-left: 1px solid var(--border); background: var(--surface); font: 400 14px/24px var(--font-ui); }
+.agent-panel-resizer { position: absolute; z-index: 3; top: 0; bottom: 0; left: -5px; width: 9px; cursor: col-resize; touch-action: none; }
+.agent-panel-resizer::after { content: ''; position: absolute; top: calc(50% - 18px); left: 3px; width: 3px; height: 36px; border-radius: 2px; background: var(--border-strong); }
+.agent-panel-resizer:hover::after, .agent-panel-resizer:focus-visible::after, .agent-panel-resizer[data-resizing]::after { background: var(--muted); }
+.agent-panel-resizer:focus-visible { outline: 1px solid var(--muted); outline-offset: -2px; }
+.resizing-agent-panel, .resizing-agent-panel * { cursor: col-resize !important; user-select: none !important; }
+.agent-panel-heading { display: flex; align-items: center; justify-content: space-between; height: 44px; flex: none; padding: 0 16px 0 24px; color: var(--muted); font-size: 12px; }
+.agent-panel-heading > span { display: flex; align-items: center; gap: 8px; }
+.agent-profile { flex: none; padding: 16px 24px 18px; }
+.agent-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.agent-title-row h2 { font-size: 16px; font-weight: 600; line-height: 26px; margin: 0; overflow-wrap: anywhere; }
+.agent-switch { display: flex; flex: none; margin-right: -7px; }
+.agent-switch .icon-button { width: 24px; height: 28px; padding: 4px; }
+.agent-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.agent-meta button { margin-left: auto; border: 0; background: transparent; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; font: inherit; }
+.agent-panel-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; overscroll-behavior: contain; padding: 8px 24px 28px; }
+.agent-instruction { margin-bottom: 22px; overflow-wrap: anywhere; }
+.agent-section-label { color: var(--muted); font-size: 12px; line-height: 20px; margin-bottom: 7px; }
+.agent-panel .message { margin: 18px 0; max-width: 100%; }
+.agent-panel .markdown { font-size: 14px; line-height: 25px; }
+.agent-panel .markdown h1, .agent-panel .markdown h2 { font-size: 16px; line-height: 26px; }
+.agent-panel .markdown h3 { font-size: 14px; line-height: 24px; }
+.agent-panel .tool-message { margin: 0; }
+.agent-panel .tool-message > summary { font-size: 14px; }
+.agent-panel .tool-details { margin-left: 0; }
+.agent-panel .tool-file-link[aria-disabled=true] { color: inherit; cursor: inherit; }
+.agent-panel .system-message { font-size: 14px; line-height: 24px; overflow-wrap: anywhere; }
+.agent-empty { color: var(--muted); font-size: 14px; line-height: 24px; }
+@media (max-width: 900px) { .agent-panel { position: absolute; inset: 0; z-index: 20; width: 100%; border: 0; } }

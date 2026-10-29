@@ -366,10 +366,32 @@ const pendingSessionLists = new Set()
 let deletionScenario = 'normal'
 let snapshotScenario = 'normal'
 const pendingSnapshots = new Set()
+const submissionStages = { create: { mode: 'normal', pending: new Set() }, input: { mode: 'normal', pending: new Set() } }
 const server = http.createServer(async (req, res) => {
   if (req.headers.authorization !== `Bearer ${token}`) { res.writeHead(401); res.end('{}'); return }
   const url = new URL(req.url, 'http://127.0.0.1')
   const parts = url.pathname.split('/').filter(Boolean)
+  if (url.pathname === '/__submission-test') {
+    const stage = submissionStages[url.searchParams.get('stage') || 'create']
+    const mode = url.searchParams.get('mode')
+    if (mode) {
+      stage.mode = mode
+      if (mode !== 'hold') { for (const release of stage.pending) release(); stage.pending.clear() }
+    }
+    res.end(JSON.stringify({ pending: stage.pending.size })); return
+  }
+  const submissionStage = req.method === 'POST' ? (url.pathname === '/api/sessions' ? submissionStages.create : parts[3] === 'inputs' ? submissionStages.input : undefined) : undefined
+  if (submissionStage) {
+    if (submissionStage.mode === 'hold') await new Promise(resolve => {
+      submissionStage.pending.add(resolve)
+      res.on('close', () => { submissionStage.pending.delete(resolve); resolve() })
+    })
+    if (res.destroyed) return
+    if (submissionStage.mode === 'error') {
+      res.writeHead(503, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: { message: 'Submission temporarily unavailable' } })); return
+    }
+  }
   if (url.pathname === '/__deletion-test') {
     deletionScenario = url.searchParams.get('deletion') || deletionScenario
     snapshotScenario = url.searchParams.get('snapshot') || snapshotScenario

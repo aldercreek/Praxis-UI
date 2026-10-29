@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CircleAlert, Folder, FileDiff, LoaderCircle, ShieldCheck, Minus, PanelLeft, Plus, Quote, Square, Stop, X } from './icons'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CircleAlert, Folder, FileDiff, ShieldCheck, Minus, PanelLeft, Plus, Quote, Square, Stop, X } from './icons'
 import type { DesktopSettings, SessionSummary } from '../../shared/protocol'
 import { isBusy } from './state'
 import { baseName, errorMessage, usePraxis } from './usePraxis'
 import { DisclosureState } from './Disclosure'
-import { ExecutionBar } from './ExecutionBar'
+import { ExecutionBar, ExecutionStatus } from './ExecutionBar'
 import { FileNavigationContext } from './MarkdownContent'
 import { FilePanel, type PanelTarget } from './FilePanel'
 import { collectTurnChanges } from './changeSummary'
@@ -18,6 +18,9 @@ import { Transcript } from './Transcript'
 import { ApprovalProvider, ApprovalPrompt } from './ApprovalPrompt'
 import { ReadingAnchor } from './ReadingAnchor'
 import { MessageQueue } from './MessageQueue'
+import { AgentDock } from './AgentDock'
+import { AgentPanel } from './AgentPanel'
+import { collectAgents } from './agentPresentation'
 import praxisWordmark from '../../../resources/brand/praxis-wordmark.svg'
 
 type Praxis = ReturnType<typeof usePraxis>
@@ -86,8 +89,20 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(window.innerWidth <= 640)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [quotes, setQuotes] = useState<Record<string, TextQuote | undefined>>({})
-  const [panel, setPanel] = useState<{ session: string; target: PanelTarget }>()
+  const [panel, setPanel] = useState<{ session: string; target: PanelTarget | { type: 'agent'; key: string } }>()
   const [compactPanel, setCompactPanel] = useState(window.innerWidth <= 1100)
+  const [compactAgentPanel, setCompactAgentPanel] = useState(window.innerWidth <= 900)
+  const [agentPanelWidth, setAgentPanelWidth] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem('praxis.agentPanelWidth'))
+      return Number.isFinite(saved) && saved >= 360 && saved <= 880 ? saved : 520
+    } catch { return 520 }
+  })
+  const workspaceRef = useRef<HTMLDivElement>(null)
+  const [workspaceWidth, setWorkspaceWidth] = useState(window.innerWidth)
+  const agentPanelMax = Math.min(880, Math.max(360, workspaceWidth - 400))
+  const agentPanelMin = Math.min(400, agentPanelMax)
+  const agentPanelSize = Math.max(agentPanelMin, Math.min(agentPanelMax, agentPanelWidth))
   const [showScroll, setShowScroll] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -101,23 +116,27 @@ export default function App() {
     if (!disclosureSessions.current.has(key)) disclosureSessions.current.set(key, new Map())
     return disclosureSessions.current.get(key)!
   }, [praxis.activeId])
-  const draftKey = praxis.activeId || `new:${praxis.workspace}`
+  const draftKey = praxis.active?.clientId || praxis.activeId || `new:${praxis.workspace}`
   const currentDraftKey = useRef(draftKey)
   currentDraftKey.current = draftKey
   const draft = drafts[draftKey] || ''
   const active = praxis.active
+  const pendingDelivery = active?.messages.some(message => message.role === 'user' && message.status === 'sending' && !message.turn_id)
   const queuedInputs = active?.pendingInputs.filter(item => item.command_id !== active.sendingInputId
     && !active.messages.some(message => message.id === item.command_id && message.status === 'sending')) || []
   const workspace = active?.summary?.workspace || praxis.workspace
   const quote = quotes[draftKey]
   const panelTarget = panel?.session === draftKey ? panel.target : undefined
+  const overlayPanel = panelTarget?.type === 'agent' ? compactAgentPanel : compactPanel
+  const agents = useMemo(() => active ? collectAgents(active) : [], [active])
   const changes = useMemo(() => collectTurnChanges(active?.messages || [], workspace), [active?.messages, workspace])
   const currentChanges = changes.find(turn => turn.turnId === active?.activeTurnId)
-  const openPanel = useCallback((target: PanelTarget) => {
+  const openPanel = useCallback((target: PanelTarget | { type: 'agent'; key: string }) => {
     if (!panel) previewTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     stickToBottom.current = false
     setPanel({ session: draftKey, target })
   }, [draftKey, panel])
+  const openAgent = (key: string) => openPanel({ type: 'agent', key })
   const closePanel = useCallback(() => {
     setPanel(undefined)
     requestAnimationFrame(() => {
@@ -159,12 +178,28 @@ export default function App() {
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 1100px)')
-    const resize = () => setCompactPanel(media.matches)
+    const agentMedia = window.matchMedia('(max-width: 900px)')
+    const resize = () => { setCompactPanel(media.matches); setCompactAgentPanel(agentMedia.matches) }
     media.addEventListener('change', resize)
-    return () => media.removeEventListener('change', resize)
+    agentMedia.addEventListener('change', resize)
+    return () => { media.removeEventListener('change', resize); agentMedia.removeEventListener('change', resize) }
   }, [])
 
   useEffect(() => { setPanel(undefined) }, [draftKey])
+
+  useLayoutEffect(() => {
+    const node = workspaceRef.current
+    if (!node) return
+    const measure = () => setWorkspaceWidth(node.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    try { localStorage.setItem('praxis.agentPanelWidth', String(agentPanelWidth)) } catch { /* Storage may be unavailable. */ }
+  }, [agentPanelWidth])
 
   useEffect(() => {
     const removed = praxis.removedSessionIds
@@ -239,23 +274,24 @@ export default function App() {
     const selectedQuote = quote
     setDrafts(previous => ({ ...previous, [key]: '' }))
     stickToBottom.current = true
+    textareaRef.current?.focus()
     const result = await praxis.send(formatQuotedInput(content, selectedQuote))
     if (!result.success && !praxis.removedSessionIds.has(result.sessionId || key)) {
       setDrafts(previous => {
-        const destination = result.sessionId || key
+        const destination = result.draftKey || result.sessionId || key
         return { ...previous, [destination]: previous[destination] ? `${content}\n\n${previous[destination]}` : content }
       })
-      if (selectedQuote && result.sessionId && result.sessionId !== key) setQuotes(previous => ({ ...previous, [result.sessionId!]: selectedQuote }))
+      const destination = result.draftKey || result.sessionId
+      if (selectedQuote && destination && destination !== key) setQuotes(previous => ({ ...previous, [destination]: selectedQuote }))
     } else if (selectedQuote) setQuotes(previous => previous[key] === selectedQuote ? { ...previous, [key]: undefined } : previous)
-    requestAnimationFrame(() => textareaRef.current?.focus())
   }
 
   const connectionProblem = !connected && praxis.connection.state !== 'connecting'
   const title = active?.summary?.title || 'New chat'
-  const showNavigation = !loading && Boolean(active?.messages.some(message => message.role === 'user')) && !(panelTarget && compactPanel)
+  const showNavigation = !loading && Boolean(active?.messages.some(message => message.role === 'user')) && !(panelTarget && overlayPanel)
   return <ApprovalProvider approvals={active?.approvals || []} onRespond={praxis.approve}><div className={`app ${sidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}>
     <Sidebar praxis={praxis} collapsed={sidebarCollapsed} toggleSidebar={() => setSidebarCollapsed(value => !value)} openSettings={() => setSettingsOpen(true)} onDelete={setDeleteTarget} />
-    <DeleteChatDialog session={deleteTarget ? praxis.conversations[deleteTarget.id]?.summary || deleteTarget : null} close={() => setDeleteTarget(null)} confirm={id => { void praxis.deleteSession(id) }} />
+    <DeleteChatDialog session={deleteTarget ? praxis.conversations[deleteTarget.id]?.summary || Object.values(praxis.conversations).find(conversation => conversation.clientId === deleteTarget.id)?.summary || deleteTarget : null} close={() => setDeleteTarget(null)} confirm={id => { void praxis.deleteSession(id) }} />
     <main className="main">
       <header className="titlebar">
         <div className="titlebar-leading">{sidebarCollapsed && <IconButton label="Expand sidebar" onClick={() => setSidebarCollapsed(false)}><PanelLeft size={16} /></IconButton>}<span className="titlebar-title" title={title}>{title}</span></div>
@@ -266,8 +302,8 @@ export default function App() {
 
       {(connectionProblem || praxis.configured === false) && <div className="connection-banner" role="status"><CircleAlert size={16} /><span>{connectionProblem ? praxis.connection.message || 'Unable to connect to local Praxis. Check your runtime settings.' : 'No model API key configured. Add one in Settings or the Praxis environment.'}</span><button type="button" onClick={() => setSettingsOpen(true)}>Open settings</button>{connectionProblem && praxis.api && <button type="button" onClick={() => { void praxis.api.restart().catch(error => praxis.setError(errorMessage(error))) }}>Reconnect</button>}</div>}
 
-      <div className={`workspace-content ${panelTarget ? 'has-panel' : ''} ${showNavigation ? 'has-navigation' : ''}`}>
-      <div className={`conversation-body ${empty ? 'is-new' : ''}`} inert={Boolean(panelTarget && compactPanel)}>
+      <div ref={workspaceRef} className={`workspace-content ${panelTarget ? 'has-panel' : ''} ${showNavigation ? 'has-navigation' : ''}`}>
+      <div className={`conversation-body ${empty ? 'is-new' : ''}`} inert={Boolean(panelTarget && overlayPanel)}>
       <div className="transcript" ref={scrollRef} onScroll={() => {
         const container = scrollRef.current
         if (container) {
@@ -292,8 +328,8 @@ export default function App() {
         <ReadingAnchor container={scrollRef} following={stickToBottom}><div className="transcript-content">
           <DisclosureState.Provider value={disclosures}>
           <FileNavigationContext.Provider value={fileNavigation}>
-          {loading ? <div className="transcript-skeleton" aria-label="Loading chat history"><i /><i /><i /><i /></div> : empty ? <div className="empty-state"><h1><img className="welcome-wordmark" src={praxisWordmark} alt="Praxis" width={340} height={97} /></h1></div> : active && <Transcript key={praxis.activeId} conversation={active} changes={changes} onChanges={openChanges} />}
-          {!loading && active && busy && !active.approvals.length && <ExecutionBar key={`${praxis.activeId}:${active.activeTurnId || 'current'}`} conversation={active} />}
+          {loading ? <div className="transcript-skeleton" aria-label="Loading chat history"><i /><i /><i /><i /></div> : empty ? <div className="empty-state"><h1><img className="welcome-wordmark" src={praxisWordmark} alt="Praxis" width={340} height={97} /></h1></div> : active && <Transcript key={draftKey} conversation={active} changes={changes} onChanges={openChanges} />}
+          {!loading && active && (busy || pendingDelivery) && !active.approvals.length && !agents.length && <ExecutionStatus conversation={active} pending={pendingDelivery} />}
           </FileNavigationContext.Provider>
           </DisclosureState.Provider>
         </div></ReadingAnchor>
@@ -303,8 +339,9 @@ export default function App() {
         <div className="transcript-bottom-mask" data-visible={showScroll} aria-hidden="true" />
         {showScroll && <button type="button" className="scroll-bottom" aria-label="Scroll to latest message" title="Scroll to latest message" onClick={() => { const container = scrollRef.current; if (container) container.scrollTop = container.scrollHeight; stickToBottom.current = true; setShowScroll(false) }}><ArrowDown size={18} aria-hidden="true" /></button>}
         {praxis.error && <div className="composer-error" role="alert"><CircleAlert size={14} /><span>{praxis.error}</span>{praxis.deleteFailure && <button type="button" className="button" onClick={() => void praxis.deleteSession(praxis.deleteFailure!)}>Retry deletion</button>}<IconButton label="Dismiss error" onClick={() => praxis.setError('')}><X size={14} /></IconButton></div>}
+        {!loading && active && (busy || pendingDelivery || agents.length > 0) && <ExecutionBar key={`execution-tools:${draftKey}`} plan={active.plan} leading={agents.length > 0 ? <AgentDock agents={agents} selected={panelTarget?.type === 'agent' ? panelTarget.key : undefined} onSelect={openAgent} /> : undefined} />}
         <ApprovalPrompt onStop={() => void praxis.stop()} stopping={stopping} />
-        {!active?.approvals.length && <MessageQueue key={draftKey} items={queuedInputs} paused={!busy} disabled={!ready || stopping}
+        {!active?.approvals.length && <MessageQueue key={draftKey} items={queuedInputs} paused={!busy} disabled={!ready || stopping || Boolean(active?.submission)}
           onDelete={praxis.deleteInput} onSend={id => praxis.queueAction('send', { input_id: id })} onReorder={ids => praxis.queueAction('reorder', { input_ids: ids })}
           onEdit={async id => {
             const key = draftKey
@@ -330,17 +367,21 @@ export default function App() {
                 <button type="button" className="permission-button" disabled={busy || !praxis.info} title={busy ? 'Approval mode cannot be changed while a task is running' : 'Approval settings'} onClick={() => setSettingsOpen(true)}><ShieldCheck size={20} /><span>{praxis.info?.settings.bypassApprovals ? 'Auto-approve' : 'Ask for approval'}</span></button>
               </>}
             </div>
-            <div className="composer-actions">{!empty && <button type="button" className="model-button" aria-label="Choose model" title="Model and settings" onClick={() => setSettingsOpen(true)}><span>{active?.summary?.model || praxis.info?.settings.model || 'Default model'}</span><ChevronDown size={12} /></button>}{busy && draft.trim() && <button type="button" className="icon-button additional-stop" aria-label="Stop" onClick={() => void praxis.stop()} disabled={stopping} title="Stop task"><Stop size={20} /></button>}{busy && !draft.trim() ? <button className="send-button" type="button" aria-label="Stop" title="Stop task" disabled={stopping} onClick={() => void praxis.stop()}><Stop size={20} /></button> : <button className="send-button" type="submit" aria-label={busy ? 'Send follow-up' : 'Send message'} title="Send message · Enter" disabled={!draft.trim() || !canSubmit}>{praxis.sending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={20} />}</button>}</div>
+            <div className="composer-actions">{!empty && <button type="button" className="model-button" aria-label="Choose model" title="Model and settings" onClick={() => setSettingsOpen(true)}><span>{active?.summary?.model || praxis.info?.settings.model || 'Default model'}</span><ChevronDown size={12} /></button>}{busy && draft.trim() && <button type="button" className="icon-button additional-stop" aria-label="Stop" onClick={() => void praxis.stop()} disabled={stopping} title="Stop task"><Stop size={20} /></button>}{busy && !draft.trim() ? <button className="send-button" type="button" aria-label="Stop" title="Stop task" disabled={stopping} onClick={() => void praxis.stop()}><Stop size={20} /></button> : <button className="send-button" type="submit" aria-label={busy ? 'Send follow-up' : 'Send message'} title="Send message · Enter" disabled={!draft.trim() || !canSubmit}><ArrowUp size={20} /></button>}</div>
           </div>
         </form>
         <div hidden={empty || Boolean(active?.approvals.length)} className="composer-caption"><span title={workspace}><Folder size={12} /><span>{baseName(workspace) || 'Workspace'}</span></span><span>Enter to send · Shift + Enter for a new line</span></div>
       </div>
       {showNavigation && active && praxis.activeId && <ConversationRail key={`navigation:${praxis.activeId}`} sessionId={praxis.activeId} messages={active.messages} scrollRef={scrollRef} onNavigate={() => { stickToBottom.current = false; downwardIntentUntil.current = 0 }} />}
       </div>
-      {panelTarget && <FilePanel key={`files:${draftKey}`} target={panelTarget} workspace={workspace} turns={changes} activeTurnId={active?.activeTurnId} onTarget={openPanel} onClose={closePanel} />}
+      {panelTarget?.type === 'agent' && <DisclosureState.Provider value={disclosures}><FileNavigationContext.Provider value={fileNavigation}>
+        <AgentPanel key={`agents:${draftKey}`} agents={agents} selected={panelTarget.key} onSelect={openAgent} onClose={closePanel} compact={compactAgentPanel}
+          width={agentPanelSize} minWidth={agentPanelMin} maxWidth={agentPanelMax} onResize={setAgentPanelWidth} />
+      </FileNavigationContext.Provider></DisclosureState.Provider>}
+      {panelTarget && panelTarget.type !== 'agent' && <FilePanel key={`files:${draftKey}`} target={panelTarget} workspace={workspace} turns={changes} activeTurnId={active?.activeTurnId} onTarget={openPanel} onClose={closePanel} />}
       </div>
     </main>
-    {!settingsOpen && !mcpOpen && !praxis.sending && !(panelTarget && compactPanel) && <QuoteSelection rootRef={scrollRef} sessionKey={draftKey} onQuote={addQuote} />}
+    {!settingsOpen && !mcpOpen && !praxis.sending && !(panelTarget && overlayPanel) && <QuoteSelection rootRef={scrollRef} sessionKey={draftKey} onQuote={addQuote} />}
     <SettingsDialog praxis={praxis} open={settingsOpen} close={() => setSettingsOpen(false)} />
     {mcpOpen && <McpStatusDialog close={() => { setMcpOpen(false); requestAnimationFrame(() => textareaRef.current?.focus()) }} />}
   </div></ApprovalProvider>

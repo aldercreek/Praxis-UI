@@ -15,23 +15,14 @@ export function useDisclosure(storageKey: string, defaultOpen = false) {
   return [open, setOpen] as const
 }
 
-export function Disclosure({ storageKey, defaultOpen = false, forceOpen = false, children, ...props }: ComponentPropsWithoutRef<'details'> & { storageKey: string; defaultOpen?: boolean; forceOpen?: boolean }) {
+export function Disclosure({ storageKey, defaultOpen = false, forceOpen = false, open: controlledOpen, onOpenChange, children, ...props }: ComponentPropsWithoutRef<'details'> & { storageKey: string; defaultOpen?: boolean; forceOpen?: boolean; onOpenChange?: (open: boolean) => void }) {
   const [chosenOpen, setOpen] = useDisclosure(storageKey, defaultOpen)
-  const open = forceOpen || chosenOpen
+  const open = forceOpen || (controlledOpen ?? chosenOpen)
   const ref = useRef<HTMLDetailsElement>(null)
-  const previousOpen = useRef(open)
   useLayoutEffect(() => {
     const node = ref.current
     const summary = node?.querySelector<HTMLElement>(':scope > summary')
     if (!open && node?.contains(document.activeElement) && !summary?.contains(document.activeElement)) summary?.focus({ preventScroll: true })
-    const opening = open && !previousOpen.current
-    previousOpen.current = open
-    if (!opening || !node || node.dataset.disableMotion === 'true' || matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const animations = [...node.children].filter(child => child !== summary).map(child => child.animate(
-      [{ transform: 'translateY(-6px)' }, { transform: 'translateY(0)' }],
-      { duration: 220, easing: 'ease-out' },
-    ))
-    return () => animations.forEach(animation => animation.cancel())
   }, [open])
   return <details {...props} ref={ref} open={open} data-expanded={open} onClickCapture={event => {
     const target = event.target instanceof Element ? event.target : undefined
@@ -40,7 +31,7 @@ export function Disclosure({ storageKey, defaultOpen = false, forceOpen = false,
     // Keep nested controls independent and prevent a second native toggle on
     // double-click. Keyboard activation also produces a click (detail = 0).
     event.preventDefault()
-    if (!forceOpen && event.detail < 2) setOpen(!open)
+    if (!forceOpen && event.detail < 2) (onOpenChange || setOpen)(!open)
   }}>{Children.map(children, child => isValidElement<ComponentPropsWithoutRef<'summary'>>(child) && child.type === 'summary'
     ? cloneElement(child, { 'aria-expanded': open }) : child)}</details>
 }

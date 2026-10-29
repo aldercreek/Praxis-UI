@@ -64,10 +64,18 @@ export class BackendClient extends EventEmitter {
         })
         if (!response.ok) {
           if (response.status === 401 && attempt < 3) { await this.reconnect(); continue }
-          const body = await response.json() as { error?: { message: string } }
-          throw new RequestError(body.error?.message || `HTTP ${response.status}`, response.status)
+          const raw = await response.text()
+          let message: string | undefined
+          try { message = (JSON.parse(raw) as { error?: { message?: string } }).error?.message } catch { /* Older services may return plain HTTP errors. */ }
+          if (!message && response.status === 404 && /\/queue\//.test(path)) {
+            message = 'The running Praxis service needs an update to use these queue controls. Restart the background service after its tasks finish. Your queued message is unchanged.'
+          }
+          throw new RequestError(message || `Praxis request failed (HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}).`, response.status)
         }
-        return await response.json() as T
+        const raw = await response.text()
+        if (response.status === 204) return {} as T
+        try { return JSON.parse(raw) as T }
+        catch { throw new RequestError('Praxis returned an invalid response. Check the service connection before retrying.', response.status) }
       } catch (error) {
         if (error instanceof RequestError || attempt >= 3 || generation !== this.generation) throw error
         await new Promise(resolve => setTimeout(resolve, 500 * 2 ** Math.min(attempt, 2)))

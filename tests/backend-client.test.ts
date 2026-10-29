@@ -12,6 +12,8 @@ async function fixture() {
   const streams = new Set<ServerResponse>()
   const commands: Record<string, unknown>[] = []
   const afters: number[] = []
+  let httpFailure: { status: number; body: string } | undefined
+  let failedRequests = 0
   let dropInputReply = false
   let deletedStatus = 0
   let holdSnapshot = false
@@ -20,6 +22,10 @@ async function fixture() {
   const server = createServer(async (req, res) => {
     if (req.headers.authorization !== 'Bearer token') { res.writeHead(401); res.end('{}'); return }
     const url = new URL(req.url!, 'http://localhost')
+    if (httpFailure && (url.pathname.includes('/queue/') || url.pathname.endsWith('/inputs'))) {
+      failedRequests++
+      res.writeHead(httpFailure.status, { 'Content-Type': 'text/plain' }); res.end(httpFailure.body); return
+    }
     if (url.pathname.endsWith('/events')) {
       const after = Number(url.searchParams.get('after'))
       afters.push(after)
@@ -68,6 +74,8 @@ async function fixture() {
   })
   return {
     commands, afters, streams, snapshots, summary,
+    failHttp: (status: number, body: string) => { httpFailure = { status, body } },
+    failedRequests: () => failedRequests,
     holdSnapshot: () => { holdSnapshot = true },
     remove(status = 404, announce = true) {
       deletedStatus = status
@@ -94,6 +102,22 @@ async function fixture() {
 function encode(event: PraxisEvent) { return `id: ${event.sequence}\nevent: ${event.event}\ndata: ${JSON.stringify(event)}\n\n` }
 
 describe('shared HTTP and SSE client', () => {
+  it('reports an old queue endpoint clearly without retrying a plain-text 404', async () => {
+    const server = await fixture()
+    const client = await server.connect()
+    server.failHttp(404, 'Not Found')
+    await expect(client.request('input.send', { session_id: 'S1', input_id: 'queued' })).rejects.toThrow('running Praxis service needs an update')
+    expect(server.failedRequests()).toBe(1)
+  })
+
+  it('does not repeat a mutation after a successful but malformed response', async () => {
+    const server = await fixture()
+    const client = await server.connect()
+    server.failHttp(200, 'invalid response')
+    await expect(client.request('input.submit', { session_id: 'S1', text: 'hello' })).rejects.toThrow('invalid response')
+    expect(server.failedRequests()).toBe(1)
+  })
+
   it('removes a deleted chat from both clients without reconnecting or leaving it busy', async () => {
     const server = await fixture()
     const first = await server.connect()

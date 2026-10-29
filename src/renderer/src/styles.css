@@ -174,28 +174,38 @@ code, pre { font-family: var(--mono); font-size: var(--text-code); font-weight: 
 .image-reference { color: var(--muted); font-size: var(--text-small); }
 
 .turn-plan { margin: 4px 0 12px; color: var(--muted); }
-.turn-plan > summary { width: fit-content; min-height: 28px; padding: 4px 8px; margin-left: -8px; border-radius: 6px; font-size: var(--text-small); }
-.turn-plan > summary:hover { background: var(--subtle); color: var(--ink); }
-.turn-plan .plan-steps { padding-left: 22px; }
+.turn-plan > summary:hover { color: var(--ink); }
+.turn-plan > summary:focus-visible { border-radius: 4px; }
 .plan-count { color: var(--muted); font-variant-numeric: tabular-nums; font-size: var(--text-caption); white-space: nowrap; }
-.plan-steps { list-style: none; margin: 6px 0 0; padding: 0; }
-.plan-steps li { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 8px; padding: 6px 0; font-size: var(--text-small); line-height: 20px; color: var(--muted); }
-.plan-steps li > span:last-child { overflow-wrap: anywhere; }
-.plan-steps li svg { margin-top: 3px; }
-.plan-steps li.in_progress { color: var(--ink); font-weight: 500; }
-.plan-current-dot { width: 6px; height: 6px; margin: 7px 0 0 4px; background: currentColor; border-radius: 50%; }
+/* Read-only plan states share one flat list with no connector decoration. */
+.plan-steps { position: relative; list-style: none; margin: 2px 0 0; padding: 0; }
+.plan-steps li { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 8px; padding: 5px 0; color: var(--ink); font-size: var(--text-small); line-height: 22px; }
+.plan-steps li.completed { color: var(--muted); }
+.plan-steps li.in_progress { font-weight: 600; }
+.plan-steps li > span:last-child { overflow-wrap: anywhere; text-wrap: pretty; }
+.plan-marker { display: grid; place-items: center; width: 14px; height: 14px; margin-top: 4px; border: 1px solid var(--faint); border-radius: 50%; }
+.plan-steps li.in_progress .plan-marker { border: 1.5px solid var(--ink); }
+.plan-steps li.in_progress .plan-marker::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--ink); }
+.plan-steps li.completed .plan-marker { border: 0; background: var(--success); color: var(--surface); }
+.plan-marker svg { width: 100%; height: 100%; }
 .composer-region { position: relative; flex-shrink: 0; width: min(100%, calc(var(--content-width) + var(--scrollbar-width, 0px))); padding: 10px calc(24px + var(--scrollbar-width, 0px)) 10px 24px; margin: 0 auto; }
-.execution-bar { position: relative; display: flex; align-items: center; gap: 16px; min-height: 22px; margin-bottom: 8px; }
+.execution-bar { position: relative; display: flex; align-items: center; gap: 12px; height: 36px; min-height: 36px; margin-bottom: 6px; }
 .execution-status { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; color: var(--muted); font-size: var(--text-small); line-height: 20px; }
 .execution-status > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .execution-attention { color: var(--warning); }
 .execution-failed { color: var(--error); }
-.plan-trigger { display: flex; align-items: center; flex-shrink: 0; gap: 6px; min-height: 28px; padding: 4px 6px; margin-right: -6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: var(--text-small); }
-.plan-trigger:hover, .plan-trigger[aria-expanded="true"] { background: var(--subtle); color: var(--ink); }
+.plan-trigger { display: flex; align-items: center; flex-shrink: 0; gap: 6px; min-height: 28px; padding: 4px 6px; margin-left: auto; margin-right: -6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: var(--text-small); }
+.plan-trigger:hover, .plan-trigger[aria-expanded="true"] { background: var(--hover); color: var(--ink); }
 .plan-trigger[aria-expanded="true"] .disclosure-icon { transform: rotate(-90deg); }
-.plan-popover { position: absolute; z-index: var(--z-popover); bottom: calc(100% + 8px); right: 0; width: min(420px, 100%); max-height: min(360px, calc(100dvh - 240px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 10px 14px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 4px 8px oklch(0.2 0 0 / 0.08); }
-.plan-heading { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: var(--text-small); font-weight: 500; }
-.plan-close { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; margin-left: auto; margin-right: -6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
+/* The heading stays put; only the step list scrolls within the measured height.
+   Flat like the Agents list at the same anchor: one border, no shadow. */
+.plan-popover { position: fixed; z-index: var(--z-popover); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.plan-heading { display: flex; flex: none; align-items: center; gap: 8px; padding: 8px 9px 1px 16px; font-size: var(--text-small); line-height: 20px; }
+.plan-title { font-weight: 600; }
+.plan-popover .plan-steps { min-height: 0; margin: 0; padding: 2px 16px 6px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; border-top: 1px solid transparent; transition: border-color 120ms ease-out; }
+.plan-popover .plan-steps[data-scrolled] { border-top-color: var(--border); }
+.plan-popover .plan-steps:focus-visible { outline: 2px solid #737373; outline-offset: -2px; }
+.plan-close { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; margin-left: auto; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
 .plan-close:hover { background: var(--hover); color: var(--ink); }
 .composer { border: 1px solid var(--border); border-radius: 24px; padding: 12px 0 0; background: var(--surface); box-shadow: 0 2px 6px #00000005; transition: border-color 150ms ease-out; }
 .composer:focus-within { border-color: #999; }
@@ -420,6 +430,6 @@ code, pre { font-family: var(--mono); font-size: var(--text-code); font-weight: 
 @media (max-width: 850px) { .permission-button { display: none; } .titlebar-leading { padding-left: 22px; } .transcript-content { padding-inline: 22px; } .message-user { margin-top: 20px; } .composer-region { padding-left: 22px; padding-right: calc(22px + var(--scrollbar-width, 0px)); } }
 @media (max-width: 640px) { .composer-caption > span:last-child { display: none; } .model-button { max-width: 140px; } }
 
-.transcript-content > .execution-bar { margin: 2px 0 0; min-height: 22px; font-family: var(--font-conversation); }
-.execution-status { font-size: 13px; line-height: 22px; color: #0000004d; }
+.transcript-content > .execution-status { margin: 2px 0 0; min-height: 22px; font-family: var(--font-conversation); }
+.execution-status { font-size: 13px; line-height: 22px; color: #626262; }
 @media (max-width: 640px) { .titlebar { height: 52px; } .titlebar-title { font-size: 15px; } .titlebar-leading { gap: 8px; padding-left: 16px; } .composer { border-radius: 20px; } }

@@ -10,7 +10,7 @@ export class ReadingAnchor extends Component<Props, Record<string, never>, Ancho
     const container = this.props.container.current
     if (!container || this.props.following.current) return null
     const viewport = container.getBoundingClientRect()
-    const element = [...container.querySelectorAll('.message-assistant .markdown p, .tool-message > summary, .message-user, .process-summary')]
+    const element = [...container.querySelectorAll('.message-assistant .markdown p, .agent-instruction .markdown :is(p, li, h2), .tool-group > summary, .tool-message > summary, .message-user, .process-summary')]
       .find(node => {
         const rect = node.getBoundingClientRect()
         return rect.height > 0 && rect.bottom > viewport.top + 4 && rect.top < viewport.bottom

@@ -1,5 +1,6 @@
 import type { Approval, PraxisEvent, SessionSnapshot, SessionSummary, TranscriptMessage } from '../../shared/protocol'
 import { readAgentReports } from './messagePresentation'
+import { applyAgentEvent, type AgentExecution } from './agentPresentation'
 
 export interface DisplayMessage extends TranscriptMessage {
   output?: string
@@ -20,12 +21,17 @@ export interface TurnExecution {
 }
 
 export interface Conversation {
+  /** Stable UI identity while a new local chat is attached to its server session. */
+  clientId?: string
+  localSession?: boolean
+  submission?: { commandId: string; phase: 'creating' | 'sending'; queued: boolean }
   summary?: SessionSummary
   messages: DisplayMessage[]
   approvals: Approval[]
   plan: PlanStep[]
   plansByTurn: Record<string, PlanStep[]>
   turnsById: Record<string, TurnExecution>
+  agentExecutions?: Record<string, AgentExecution>
   activeTurnId?: string
   sequence: number
   loaded: boolean
@@ -142,7 +148,7 @@ function updateMessage(messages: DisplayMessage[], id: string, update: (message?
 
 function addUserMessage(messages: DisplayMessage[], text: string, event: PraxisEvent): DisplayMessage[] {
   // The command and its echo can arrive in either order. Match only pending local messages.
-  const pending = messages.findIndex(message => message.role === 'user' && message.content === text && (message.status === 'sending' || message.status === 'queued'))
+  const pending = messages.findIndex(message => message.role === 'user' && message.content === text && ['sending', 'queued', 'not_sent'].includes(message.status || ''))
   if (pending !== -1) {
     return messages.map((message, index) => index === pending ? { ...message, status: 'received', turn_id: event.turn_id } : message)
   }
@@ -152,16 +158,24 @@ function addUserMessage(messages: DisplayMessage[], text: string, event: PraxisE
 export function applyEvent(current: Conversation, event: PraxisEvent): Conversation {
   if (event.sequence && event.sequence <= current.sequence) return current
   const data = event.data
-  const next: Conversation = { ...current, sequence: event.sequence ?? current.sequence }
+  const next: Conversation = { ...current, sequence: event.sequence ?? current.sequence,
+    agentExecutions: applyAgentEvent(current.agentExecutions || {}, event) }
   const child = isChildAgent(event.agent_id)
   const toolBase: DisplayMessage = { id: toolKey(event), role: 'tool', content: '', call_id: textOf(data.call_id), tool_name: textOf(data.tool_name), turn_id: event.turn_id, agent_id: event.agent_id, child_turn_id: textOf(data.child_turn_id) || undefined, tool_finished: false }
 
   switch (event.event) {
     case 'SessionUpdated':
       next.summary = data.session as unknown as SessionSummary
+      if (current.submission && !next.summary.title && current.summary?.title) next.summary = { ...next.summary, title: current.summary.title }
       break
     case 'TurnStarted':
-      if (!child) {
+      if (child) {
+        const raw = textOf(data.task)
+        const reports = readAgentReports(raw)
+        const content = reports ? reports.map(report => report.content).join('\n\n') : raw
+        if (content) next.messages = [...current.messages, { id: `task:${event.turn_id}:${event.agent_id}:${executionKey(event)}`, role: 'user', content,
+          turn_id: event.turn_id, agent_id: event.agent_id, child_turn_id: textOf(data.child_turn_id) || undefined, source: 'agent' }]
+      } else {
         if (next.summary) next.summary = { ...next.summary, status: 'running' }
         next.messages = addUserMessage(current.messages, textOf(data.task), event)
         next.pausedInputs = current.pausedInputs.filter(text => text !== textOf(data.task))
@@ -192,7 +206,8 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
     }
     case 'AssistantTextCompleted': {
       const content = textOf(data.text)
-      const recent = [...current.messages].reverse().find(message => message.role === 'assistant' && message.turn_id === event.turn_id && (isChildAgent(message.agent_id) ? message.agent_id : 'main') === agentKey(event))
+      const recent = [...current.messages].reverse().find(message => message.role === 'assistant' && message.turn_id === event.turn_id && (isChildAgent(message.agent_id) ? message.agent_id : 'main') === agentKey(event)
+        && (!child || !data.child_turn_id || message.child_turn_id === data.child_turn_id))
       const finalMessageId = content.trim() ? recent?.id || assistantKey(event) : undefined
       if (finalMessageId) {
         next.messages = updateMessage(current.messages, finalMessageId, message => ({
@@ -256,7 +271,18 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
       }
       break
     case 'MessagesReceived':
-      if (!child && Array.isArray(data.items)) {
+      if (child && Array.isArray(data.items)) {
+        const instructions = data.items.flatMap<DisplayMessage>((item, index) => {
+          const value = objectOf(item)
+          if (value.role === 'developer') return []
+          const raw = Array.isArray(value.content) ? value.content.map(part => textOf(objectOf(part).text)).join('\n') : textOf(value.content)
+          const reports = readAgentReports(raw)
+          const content = reports ? reports.map(report => report.content).join('\n\n') : raw
+          return content ? [{ id: `task:${event.turn_id}:${event.agent_id}:${event.sequence}:${index}`, role: 'user' as const, content,
+            turn_id: event.turn_id, agent_id: event.agent_id, child_turn_id: textOf(data.child_turn_id) || undefined, source: 'agent' }] : []
+        })
+        next.messages = [...current.messages, ...instructions]
+      } else if (Array.isArray(data.items)) {
         next.messages = data.items.reduce<DisplayMessage[]>((messages, item) => {
           const value = objectOf(item)
           if (data.source === 'agent' || value.role !== 'user') return messages
@@ -367,6 +393,7 @@ export function applySnapshot(snapshot: SessionSnapshot, buffered: PraxisEvent[]
     sendingInputId: snapshot.sending_input_id || undefined,
     pausedInputs: (snapshot.pending_inputs || []).map(item => item.content)
   }
+  current.agentExecutions = (snapshot.view_events || []).reduce((agents, event) => applyAgentEvent(agents, event), {} as Record<string, AgentExecution>)
   for (const event of buffered) current = applyEvent(current, event)
   return current
 }

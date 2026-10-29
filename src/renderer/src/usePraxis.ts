@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ConnectionStatus, DesktopInfo, DesktopSettings, PraxisEvent, SessionSnapshot, SessionSummary } from '../../shared/protocol'
 import { applyEvent, applySnapshot, emptyConversation, isBusy, type Conversation } from './state'
 
-export const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
+export const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
 export const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) || path
 
 export function usePraxis() {
@@ -16,6 +16,7 @@ export function usePraxis() {
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
   const [listState, setListState] = useState<'loading' | 'ready' | 'error'>(api ? 'loading' : 'error')
   const [sending, setSending] = useState(false)
+  const sendingRef = useRef(false)
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [deleteFailure, setDeleteFailure] = useState<string | null>(null)
   const removed = useRef(new Set<string>())
@@ -28,6 +29,8 @@ export function usePraxis() {
   conversationsRef.current = conversations
   const removeSession = useCallback((sessionId: string) => {
     removed.current.add(sessionId)
+    const clientId = conversationsRef.current[sessionId]?.clientId
+    if (clientId) removed.current.add(clientId)
     snapshots.current.delete(sessionId)
     setLoadingSession(previous => previous === sessionId ? null : previous)
     setActiveId(previous => previous === sessionId ? null : previous)
@@ -57,7 +60,7 @@ export function usePraxis() {
       const result = await api.request<{ sessions: SessionSummary[] }>('session.list')
       if (generation !== connectionGeneration.current) return
       const listed = new Set(result.sessions.map(session => session.id))
-      for (const id of Object.keys(before)) if (!listed.has(id)) removeSession(id)
+      for (const id of Object.keys(before)) if (!listed.has(id) && !before[id].localSession) removeSession(id)
       setConversations(previous => {
         const next = { ...previous }
         for (const session of result.sessions) {
@@ -65,7 +68,7 @@ export function usePraxis() {
           const conversation = next[session.id] || emptyConversation()
           // A list response must not undo newer SSE state received during the request.
           if (conversation.sequence > (before[session.id]?.sequence || 0)) continue
-          next[session.id] = { ...conversation, summary: session }
+          next[session.id] = { ...conversation, summary: { ...session, title: session.title || (conversation.submission ? conversation.summary?.title || '' : '') } }
         }
         return next
       })
@@ -150,7 +153,7 @@ export function usePraxis() {
     if (removed.current.has(sessionId)) return
     setActiveId(sessionId)
     setError('')
-    if (conversationsRef.current[sessionId]?.loaded) return
+    if (conversationsRef.current[sessionId]?.loaded || conversationsRef.current[sessionId]?.localSession) return
     if (snapshots.current.has(sessionId)) { setLoadingSession(sessionId); return }
     setLoadingSession(sessionId)
     const operation = { events: [] as PraxisEvent[], generation: connectionGeneration.current }
@@ -160,7 +163,7 @@ export function usePraxis() {
       if (operation.generation !== connectionGeneration.current || snapshots.current.get(sessionId) !== operation) return
       const buffered = operation.events
       snapshots.current.delete(sessionId)
-      setConversations(previous => ({ ...previous, [sessionId]: applySnapshot(result, buffered) }))
+      setConversations(previous => ({ ...previous, [sessionId]: { ...applySnapshot(result, buffered), clientId: previous[sessionId]?.clientId } }))
     } catch (error) {
       if (operation.generation !== connectionGeneration.current || snapshots.current.get(sessionId) !== operation) return
       const buffered = operation.events
@@ -181,9 +184,11 @@ export function usePraxis() {
   const deleteSession = useCallback((sessionId: string): Promise<void> => {
     const pending = deletionRequests.current.get(sessionId)
     if (pending) return pending
+    const local = conversationsRef.current[sessionId]?.localSession
     removeSession(sessionId)
     setError('')
     setDeleteFailure(null)
+    if (local) return Promise.resolve()
     const operation = (async () => {
       try { await api.request('session.delete', { session_id: sessionId }) }
       catch (failure) {
@@ -218,37 +223,58 @@ export function usePraxis() {
   }, [api, newChat, refresh])
 
   const send = useCallback(async (text: string) => {
-    if (!text.trim() || sending || !api) return { success: false, sessionId: activeId }
+    if (!text.trim() || sendingRef.current || !api) return { success: false, sessionId: activeId }
+    sendingRef.current = true
     setSending(true)
     setError('')
-    let sessionId = activeId
-    const messageId = `local:${crypto.randomUUID()}`
-    let queued = false
+    const localId = activeId || `local-session:${crypto.randomUUID()}`
+    let sessionId = localId
+    const existing = conversationsRef.current[localId]
+    const needsCreate = !activeId || Boolean(existing?.localSession)
+    const messageId = existing?.messages.find(message => message.role === 'user' && message.status === 'not_sent' && message.content === text)?.id || `local:${crypto.randomUUID()}`
+    const queued = !needsCreate && (isBusy(existing?.summary?.status) || Boolean(existing?.pendingInputs.length))
+    // Render before the first network request. The client identity also keeps
+    // drafts, scroll anchors and message nodes stable when the server ID arrives.
+    setConversations(previous => {
+      const conversation = previous[localId] || emptyConversation()
+      return { ...previous, [localId]: {
+        ...conversation,
+        ...(needsCreate ? { localSession: true, clientId: localId, summary: { id: localId, title: text, workspace, model: info?.settings.model || '', status: 'idle' as const, updated_at: new Date().toISOString() } } : {}),
+        loaded: true,
+        submission: { commandId: messageId, phase: needsCreate ? 'creating' : 'sending', queued },
+        messages: queued ? conversation.messages : [...conversation.messages.filter(message => message.status !== 'not_sent'), { id: messageId, role: 'user' as const, content: text, status: 'sending' }],
+        pendingInputs: queued ? [...conversation.pendingInputs, { command_id: messageId, content: text }] : conversation.pendingInputs
+      } }
+    })
+    if (!activeId) setActiveId(localId)
     try {
-      if (!sessionId) {
-        const result = await api.request<{ session: SessionSummary }>('session.create', { workspace })
+      if (needsCreate) {
+        const result = await api.request<{ session: SessionSummary }>('session.create', { workspace, command_id: localId })
         sessionId = result.session.id
-        if (removed.current.has(sessionId)) throw new Error('This chat has been deleted.')
-        setConversations(previous => ({ ...previous, [sessionId!]: { ...(previous[sessionId!] || emptyConversation()), summary: result.session, loaded: true } }))
-        setActiveId(sessionId)
+        if (removed.current.has(localId)) {
+          await api.request('session.delete', { session_id: sessionId })
+          return { success: false, sessionId: localId, draftKey: localId }
+        }
+        if (removed.current.has(sessionId)) return { success: false, sessionId: localId, draftKey: localId }
+        setConversations(previous => {
+          const local = previous[localId]!
+          const remote = previous[sessionId]
+          const next = { ...previous, [sessionId]: { ...local, ...remote, clientId: localId, localSession: false,
+            summary: { ...(remote?.summary || result.session), title: remote?.summary?.title || result.session.title || text },
+            messages: [...(remote?.messages || []), ...local.messages], loaded: true,
+            submission: { commandId: messageId, phase: 'sending' as const, queued: false } } }
+          delete next[localId]
+          return next
+        })
+        setActiveId(current => current === localId ? sessionId : current)
       }
-      queued = isBusy(conversationsRef.current[sessionId]?.summary?.status) || Boolean(conversationsRef.current[sessionId]?.pendingInputs.length)
       if (removed.current.has(sessionId)) throw new Error('This chat has been deleted.')
-      setConversations(previous => {
-        const conversation = previous[sessionId!] || emptyConversation()
-        return { ...previous, [sessionId!]: {
-          ...conversation,
-          summary: conversation.summary ? { ...conversation.summary, status: queued ? conversation.summary.status : 'running' } : undefined,
-          messages: queued ? conversation.messages : [...conversation.messages, { id: messageId, role: 'user', content: text, status: 'sending' }],
-          activity: queued ? conversation.activity : 'Starting'
-        } }
-      })
       await api.request('input.submit', { session_id: sessionId, command_id: messageId, text })
       setConversations(previous => {
         const conversation = previous[sessionId!]
-        return conversation ? { ...previous, [sessionId!]: { ...conversation, pausedInputs: conversation.pausedInputs.filter(pending => pending !== text) } } : previous
+        return conversation ? { ...previous, [sessionId!]: { ...conversation, submission: undefined, pausedInputs: conversation.pausedInputs.filter(pending => pending !== text) } } : previous
       })
-      return { success: true, sessionId }
+      return { success: true, sessionId, draftKey: existing?.clientId || (needsCreate ? localId : sessionId) }
     } catch (error) {
       setError(errorMessage(error))
       if (sessionId) setConversations(previous => {
@@ -256,14 +282,14 @@ export function usePraxis() {
         if (!conversation) return previous
         return { ...previous, [sessionId!]: {
           ...conversation,
-          summary: !queued && conversation.summary ? { ...conversation.summary, status: 'idle' } : conversation.summary,
-          messages: conversation.messages.filter(message => message.id !== messageId),
-          activity: queued ? conversation.activity : ''
+          submission: undefined,
+          messages: conversation.messages.map(message => message.id === messageId && message.status === 'sending' ? { ...message, status: 'not_sent' } : message),
+          pendingInputs: queued ? conversation.pendingInputs.filter(item => item.command_id !== messageId) : conversation.pendingInputs
         } }
       })
-      return { success: false, sessionId }
-    } finally { setSending(false) }
-  }, [activeId, api, sending, workspace])
+      return { success: false, sessionId, draftKey: existing?.clientId || (needsCreate ? localId : sessionId) }
+    } finally { sendingRef.current = false; setSending(false) }
+  }, [activeId, api, workspace, info?.settings.model])
 
   const stop = useCallback(async () => {
     if (!activeId) return

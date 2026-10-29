@@ -2,7 +2,6 @@ import { test, expect, _electron as electron, type ElectronApplication, type Loc
 import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { SessionSnapshot, SessionSummary } from '../../src/shared/protocol'
@@ -35,8 +34,9 @@ async function request<T>(path: string, data?: unknown, method = data === undefi
   return response.json() as Promise<T>
 }
 
-test.beforeEach(async () => {
-  profile = await mkdtemp(join(tmpdir(), 'praxis-real-desktop-'))
+test.beforeEach(async ({}, testInfo) => {
+  await mkdir(testInfo.outputDir, { recursive: true })
+  profile = await mkdtemp(join(testInfo.outputDir, 'profile-'))
   const repository = resolve(process.env.PRAXIS_PATH || '../Praxis')
   const python = process.env.PRAXIS_PYTHON || join(repository, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')
   const dataDir = join(profile, 'service')
@@ -94,6 +94,76 @@ test.afterEach(async () => {
   expect(errors).toEqual([])
 })
 
+test('real workers render once in the dock and restore their activity after reopening', async ({}, testInfo) => {
+  await application!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1360, 860))
+  await writeFile(join(profile, 'desktop-workspace', 'notes.md'), '# Delivery checks\nQueue order preserved.\nHistory checked.\n')
+  await page.locator('textarea').fill('agent sidebar example')
+  await page.locator('textarea').press('Enter')
+  await expect(page.locator('.transcript')).toContainText('Both agent reports are available', { timeout: 20_000 })
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+  await expect(page.locator('.transcript .message-assistant')).toHaveCount(1)
+  await expect(page.locator('.agent-dock-item')).toHaveCount(2)
+  await expect(page.locator('.transcript')).not.toContainText('Worker review complete')
+  await expect(page.locator('.transcript')).not.toContainText('source-labelled task data')
+  await expect(page.locator('.transcript .tool-message')).toHaveCount(0)
+  const { sessions } = await request<{ sessions: SessionSummary[] }>('/api/sessions')
+  const session = sessions.find(item => item.title === 'agent sidebar example')!
+  const snapshot = await request<SessionSnapshot>(`/api/sessions/${session.id}/snapshot`)
+  expect(snapshot.view_events?.filter(event => event.event === 'ChildAgentStatus').length).toBeGreaterThanOrEqual(6)
+  const open = async () => {
+    await page.locator('.agent-dock-item').filter({ hasText: 'Queue review' }).click()
+    const panel = page.getByRole('complementary', { name: 'Agent details' })
+    await expect(panel.locator('.agent-instruction')).toContainText('Read notes.md and review')
+    await expect(panel.locator('.message-assistant')).toHaveCount(1)
+    await expect(panel.locator('.message-assistant')).toContainText('Worker review complete')
+    await expect(panel).not.toContainText('Worker run ended;')
+    await expect(panel.locator('.tool-message')).toHaveCount(1)
+    const toolGroup = panel.locator('.tool-group')
+    await expect(toolGroup.locator(':scope > summary')).not.toBeVisible()
+    await panel.locator('.tool-message > summary').press('Enter')
+    await expect(panel.getByRole('region', { name: 'Tool output' })).toContainText('Delivery checks')
+    const leftEdges = await toolGroup.evaluate(element => [
+      '.tool-message .tool-icon', '.tool-details'
+    ].map(selector => element.querySelector(selector)!.getBoundingClientRect().left))
+    expect(Math.max(...leftEdges) - Math.min(...leftEdges)).toBeLessThan(1)
+    await panel.locator('.tool-message > summary').press('Enter')
+    await panel.locator('.agent-panel-heading').click()
+    return panel
+  }
+  const live = await open()
+  const resize = live.getByRole('separator', { name: 'Resize agent details' })
+  await expect(resize).toHaveAttribute('aria-valuenow', '520')
+  await resize.press('Shift+ArrowLeft')
+  await expect(resize).toHaveAttribute('aria-valuenow', '584')
+  await screenshot(testInfo.outputPath('agents-live.png'))
+  await page.getByRole('button', { name: 'View all agents' }).click()
+  const menu = page.locator('.agent-menu')
+  await expect(menu).toBeVisible()
+  expect(Math.abs((await menu.boundingBox())!.x - (await page.locator('.agent-dock-heading').boundingBox())!.x)).toBeLessThan(1)
+  await screenshot(testInfo.outputPath('agents-menu-anchored.png'))
+  await page.keyboard.press('Escape')
+  const plan = page.locator('.composer-region').getByRole('button', { name: 'View task plan' })
+  await plan.click()
+  const planMenu = page.getByRole('region', { name: 'Task plan' })
+  await expect(planMenu.locator('li.completed')).toHaveCount(2)
+  const planBounds = (await planMenu.boundingBox())!
+  const barBounds = (await page.locator('.execution-bar').boundingBox())!
+  expect(Math.abs(planBounds.x + planBounds.width - barBounds.x - barBounds.width)).toBeLessThan(1)
+  await screenshot(testInfo.outputPath('plan-menu-anchored.png'))
+  await page.keyboard.press('Escape')
+  await expect(plan).toBeFocused()
+  await page.getByRole('button', { name: 'Close agent details' }).click()
+  await page.reload()
+  await page.locator('.session-item').filter({ hasText: 'agent sidebar example' }).click()
+  const restored = await open()
+  await expect(restored.getByRole('separator', { name: 'Resize agent details' })).toHaveAttribute('aria-valuenow', '584')
+  await expect(restored.locator('.agent-meta')).not.toContainText('Running')
+  await screenshot(testInfo.outputPath('agents-restored.png'))
+  await page.getByRole('button', { name: 'Close agent details' }).click()
+  await page.getByRole('button', { name: 'New chat', exact: true }).click()
+  await expect(page.locator('.agent-dock')).toHaveCount(0)
+})
+
 test('composer queue supports editing, ordering, deleting, pausing and sending without duplicate bubbles', async ({}, testInfo) => {
   test.setTimeout(90_000)
   const send = async (text: string) => {
@@ -123,9 +193,12 @@ test('composer queue supports editing, ordering, deleting, pausing and sending w
   await expect(page.locator('.queue-preview')).toHaveText(texts)
   await expect(page.locator('.user-content')).toHaveCount(1)
   const pending = async () => (await request<SessionSnapshot>(`/api/sessions/${session.id}/snapshot`)).pending_inputs?.map(item => item.content)
-  await rows.nth(2).getByRole('button', { name: 'Reorder message 3' }).press('Alt+ArrowUp')
+  const reorder = rows.nth(2).getByRole('button', { name: 'Reorder message 3' })
+  await expect(reorder).toBeEnabled()
+  await reorder.press('Alt+ArrowUp')
   await expect(page.locator('.queue-preview')).toHaveText([texts[0], texts[2], texts[1]])
   await expect.poll(pending).toEqual([texts[0], texts[2], texts[1]])
+  await expect(rows.nth(0)).toHaveAttribute('draggable', 'true')
   await rows.nth(0).dragTo(rows.nth(2))
   await expect(page.locator('.queue-preview')).toHaveText([texts[2], texts[1], texts[0]])
   await expect.poll(pending).toEqual([texts[2], texts[1], texts[0]])

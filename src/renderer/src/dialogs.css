@@ -33,7 +33,6 @@
 .delete-chat-dialog { width: min(440px, calc(100vw - 32px)); }
 .delete-chat-body { color: var(--dialog-secondary); overflow-wrap: anywhere; }
 .delete-chat-body .delete-chat-title { margin-bottom: 8px; max-height: 88px; overflow-y: auto; color: var(--ink); font-weight: 500; }
-.delete-chat-body .delete-chat-note { margin-top: 8px; color: var(--dialog-muted); font-size: 12px; line-height: 18px; }
 
 .settings-dialog { width: min(560px, calc(100vw - 32px)); padding: 0; overflow: hidden; }
 .settings-dialog form { display: flex; flex-direction: column; max-height: calc(100dvh - 42px); }

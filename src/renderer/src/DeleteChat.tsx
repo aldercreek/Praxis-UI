@@ -41,7 +41,6 @@ export function DeleteChatDialog({ session, close, confirm }: {
       <p>{status === 'running' ? 'This chat is running. Deleting it will stop the task and permanently remove its history.'
         : status === 'stopping' ? 'This chat is stopping. Its history will be permanently removed after the task stops.'
         : 'This chat and its history will be permanently deleted.'}</p>
-      <p className="delete-chat-note">Files in your workspace will stay.</p>
     </div>
     <div className="delete-chat-actions"><button ref={cancel} type="button" onClick={close}>Cancel</button>
       <button type="button" className="delete-chat-confirm" onClick={() => { if (session) confirm(session.id); close() }}>Delete chat</button></div>

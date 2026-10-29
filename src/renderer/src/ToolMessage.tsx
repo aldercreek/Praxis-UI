@@ -1,20 +1,21 @@
 import { useContext, useLayoutEffect, useRef } from 'react'
-import { CheckCircle2, ChevronRight, CircleAlert, FileText, Image, ListChecks, Pencil, Search, Terminal } from './icons'
-import { Disclosure } from './Disclosure'
+import { Blocks, CheckCircle2, ChevronRight, FileText, FileCode2, FolderOpen, Image, Link2, ListChecks, Pencil, Search, Terminal } from './icons'
+import { Disclosure, useDisclosure } from './Disclosure'
 import { FileNavigationContext } from './MarkdownContent'
 import { fileChangePreviewPath } from './changeSummary'
-import { fileName, isAbsoluteFileReference } from './fileLinks'
-import { isChildAgent, textOf, type DisplayMessage } from './state'
-import { presentTool, type ToolKind } from './toolPresentation'
+import { isAbsoluteFileReference } from './fileLinks'
+import { isChildAgent, textOf, toolStatus, type DisplayMessage } from './state'
+import { presentTool, toolFileLabel, type ToolIconKind } from './toolPresentation'
 import { FilePathTooltip } from './FilePathTooltip'
 import { fileDiffLines } from './fileDiff'
 
-export function ToolIcon({ kind, failed = false }: { kind: ToolKind; failed?: boolean }) {
-  const Icon = failed ? CircleAlert : { read: FileText, search: Search, edit: Pencil, command: Terminal, image: Image, tool: ListChecks }[kind]
-  return <Icon size={16} className="tool-icon" aria-hidden="true" />
+export function ToolIcon({ kind }: { kind: ToolIconKind }) {
+  const Icon = { read: FileText, folder: FolderOpen, code: FileCode2, search: Search, edit: Pencil, command: Terminal, image: Image, connection: Link2, plan: ListChecks, tool: Blocks }[kind]
+  return <Icon size={14} className="tool-icon" aria-hidden="true" />
 }
 
-export function ToolMessage({ message }: { message: DisplayMessage }) {
+export function ToolMessage({ message, onExpand }: { message: DisplayMessage; onExpand?: () => void }) {
+  const [open, setOpen] = useDisclosure(message.id)
   const files = useContext(FileNavigationContext)
   const tool = presentTool(message)
   const argument = message.arguments || {}
@@ -22,14 +23,14 @@ export function ToolMessage({ message }: { message: DisplayMessage }) {
   const isEdit = tool.kind === 'edit'
   const awaiting = tool.status === 'Awaiting approval'
   const running = tool.running || tool.status === 'Queued'
-  const attention = ['Failed', 'Denied', 'Stopped'].includes(tool.status)
+  const attention = ['Failed', 'Denied', 'Stopped', 'Unknown'].includes(tool.status)
   const resultText = message.content !== message.output ? message.content : ''
   const hasDiff = Boolean(message.file_change?.diff)
   const diffLines = hasDiff ? fileDiffLines(message.file_change!.diff) : []
   const path = textOf(message.file_change?.path ?? argument.relative_path ?? argument.path ?? argument.file_path)
   const previewPath = hasDiff ? fileChangePreviewPath(message)
     : path && (!isChildAgent(message.agent_id) || isAbsoluteFileReference(path)) ? path : undefined
-  const fileLabel = (isEdit || tool.kind === 'read') && path && tool.status === 'Complete'
+  const fileLabel = (isEdit || tool.name === 'read_file') && path && tool.status === 'Complete'
   const output = useRef<HTMLDivElement>(null)
   const followOutput = useRef(true)
   useLayoutEffect(() => {
@@ -41,25 +42,28 @@ export function ToolMessage({ message }: { message: DisplayMessage }) {
   const bodyText = isEdit && running ? textOf(argument.content ?? argument.new_string ?? '') : ''
   const note = tool.status === 'Denied' ? 'Action rejected'
     : tool.status === 'Stopped' ? 'Action stopped'
-    : running ? 'Running…' : tool.status === 'Complete' ? 'Ran successfully' : 'No output'
+    : running ? 'Waiting for output' : tool.status === 'Complete' ? 'Ran successfully' : 'No output'
   const showResult = !hasDiff && !bodyText
-  const caption = textOf(argument.description) || (isCommand ? tool.command.split(/\r?\n/, 1)[0] || 'Run command' : tool.summary)
-  return <Disclosure storageKey={message.id} data-message-id={message.id} data-status={message.status} data-disable-motion={diffLines.length > 120}
+  return <Disclosure storageKey={message.id} data-message-id={message.id} data-status={toolStatus(message)}
+    open={open} onOpenChange={value => { setOpen(value); if (value) onExpand?.() }}
     className={`tool-message ${attention ? 'tool-error' : ''}`}>
-    <summary aria-label={tool.summary}>
+    <summary aria-label={tool.summary} title={tool.summary}>
       <span className="tool-head-main">
-        {(!running || isEdit) && <span className={running && isEdit ? 'writing-icon' : tool.status === 'Failed' ? 'tool-icon-error' : undefined}><ToolIcon kind={tool.kind} failed={attention} /></span>}
+        <span className={attention ? 'tool-icon-error' : undefined}><ToolIcon kind={tool.icon} /></span>
         {fileLabel ? <>
           <span className="tool-verb">{isEdit ? 'Edit' : 'Read'}</span>
-          <FilePathTooltip path={path}><button type="button" className="tool-file-link" disabled={!previewPath} onClick={() => previewPath && files?.openFile(previewPath)}>{fileName(path)}</button></FilePathTooltip>
+          <FilePathTooltip path={path}>{previewPath
+            ? <button type="button" className="tool-file-link" onClick={() => files?.openFile(previewPath)}>{toolFileLabel(path)}</button>
+            : <span className="tool-file-link" aria-disabled="true">{toolFileLabel(path)}</span>}</FilePathTooltip>
           {isEdit && message.file_change && <span className="file-stats"><span className="added">+{message.file_change.added}</span><span className="removed">−{message.file_change.removed}</span></span>}
-        </> : <span className={`tool-summary ${tool.running ? 'text-sweep' : ''}`}>
-          {isEdit && running ? (message.tool_name === 'write_file' ? 'Creating' : 'Editing') : attention ? tool.summary : caption}
+        </> : <span className={`tool-summary${tool.running ? ' text-sweep' : ''}`}>
+          {attention ? tool.summary : tool.caption}
         </span>}
         <ChevronRight className="disclosure-icon" size={12} aria-hidden="true" />
       </span>
     </summary>
     <div className={`tool-details ${hasDiff ? 'has-diff' : ''}`}>
+      {tool.displayName !== tool.name && <div className="tool-identity"><span>Tool</span><code>{tool.name}</code></div>}
       {showResult && <div className={isCommand ? 'tool-log' : 'tool-content'} ref={output} tabIndex={0} role="region" aria-label={isCommand ? 'Shell output' : 'Tool output'}
         onScroll={event => { const node = event.currentTarget; followOutput.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24 }}>
         {isCommand && tool.command && <><div className="exec-language">{Array.isArray(argument.argv) ? 'command' : 'shell'}</div><pre className="command-line">{tool.command}</pre></>}

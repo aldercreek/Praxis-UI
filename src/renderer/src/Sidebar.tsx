@@ -120,7 +120,7 @@ function SessionContextMenu({ target, id, pinned, close, togglePin, share, remov
     element.style.left = `${Math.max(8, Math.min(target.x, window.innerWidth - bounds.width - 8))}px`
     element.style.top = `${Math.max(8, Math.min(target.y, window.innerHeight - bounds.height - 8))}px`
     ;(target.keyboard ? element.querySelector<HTMLButtonElement>('button') : element)?.focus({ preventScroll: true })
-  }, [target])
+  }, [target.anchor, target.keyboard, target.x, target.y])
 
   useEffect(() => {
     const outside = (event: PointerEvent) => {
@@ -204,11 +204,18 @@ export function Sidebar({ praxis, openSettings, collapsed, toggleSidebar, onDele
   }, [])
   useEffect(() => {
     if (praxis.listState !== 'ready') return
-    const retained = retainPinnedSessions(pinnedIds, new Set(praxis.sessions.map(session => session.id)))
-    if (retained !== pinnedIds) { setPinnedIds(retained); savePinnedSessions(retained) }
+    const migrated = pinnedIds.map(id => praxis.sessions.find(session => praxis.conversations[session.id]?.clientId === id)?.id || id)
+    const retained = retainPinnedSessions(migrated, new Set(praxis.sessions.map(session => session.id)))
+    if (retained.length !== pinnedIds.length || retained.some((id, index) => id !== pinnedIds[index])) {
+      setPinnedIds(retained); savePinnedSessions(retained)
+    }
   }, [praxis.listState, praxis.sessions, pinnedIds])
   useEffect(() => {
-    if (target && (collapsed || !sessions.some(session => session.id === target.session.id))) closeMenu()
+    if (target) {
+      const session = sessions.find(session => session.id === target.session.id || praxis.conversations[session.id]?.clientId === target.session.id)
+      if (collapsed || !session) closeMenu()
+      else if (session.id !== target.session.id) setTarget({ ...target, session })
+    }
     if (shareTarget && praxis.removedSessionIds.has(shareTarget.id)) setShareTarget(null)
   }, [collapsed, sessions, target, closeMenu, shareTarget, praxis.removedSessionIds])
 
@@ -250,7 +257,7 @@ export function Sidebar({ praxis, openSettings, collapsed, toggleSidebar, onDele
             const title = session.title || 'New chat'
             const selected = session.id === praxis.activeId
             const menuOpen = target?.session.id === session.id
-            return <button type="button" key={session.id} data-session-id={session.id} className={`session-item ps-session${selected ? ' selected' : ''}${menuOpen ? ' context-target' : ''}`}
+            return <button type="button" key={praxis.conversations[session.id]?.clientId || session.id} data-session-id={session.id} className={`session-item ps-session${selected ? ' selected' : ''}${menuOpen ? ' context-target' : ''}`}
               aria-current={selected ? 'page' : undefined} aria-label={title} aria-haspopup="menu" aria-controls={menuId} aria-expanded={menuOpen}
               onClick={() => void praxis.openSession(session.id)}
               onContextMenu={event => { event.preventDefault(); setTarget({ session, anchor: event.currentTarget, x: event.clientX, y: event.clientY, keyboard: false }) }}

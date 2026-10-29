@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DisplayMessage } from './state'
-import { groupTranscript, presentTool, type ToolGroup } from './toolPresentation'
+import { currentToolGroupId, groupTranscript, presentTool, presentToolGroup, toolFileLabel, type ToolGroup } from './toolPresentation'
 
 const read = (id: string, patch: Partial<DisplayMessage> = {}): DisplayMessage => ({
   id, role: 'tool', content: 'file contents', tool_name: 'read_file',
@@ -14,10 +14,31 @@ describe('tool summaries', () => {
     expect(presentTool(read('legacy', { arguments: { file_path: 'README.md' } })).target).toBe('README.md')
   })
 
-  it('keeps full multiline commands available behind the one-line preview', () => {
+  it('labels multiline commands as scripts and keeps their original contents', () => {
     const command = 'Get-ChildItem -Path src\nWrite-Output done'
     expect(presentTool(read('command', { tool_name: 'run_command', arguments: { command } })))
-      .toMatchObject({ summary: 'Ran Get-ChildItem -Path src', kind: 'command', fullTarget: command, command })
+      .toMatchObject({ summary: 'Ran script', caption: 'Run script', kind: 'command', fullTarget: command, command })
+  })
+
+  it('does not use script delimiters or embedded source as command titles', () => {
+    for (const command of ["@'\r\nimport os\r\n'@ | python -", '@"\nWrite-Output test\n"@', "python - <<'PY'\nprint('test')\nPY", "@'", '@"']) {
+      const message = read('script', { tool_name: 'run_command', arguments: { command } })
+      expect(presentTool(message)).toMatchObject({ caption: 'Run script', summary: 'Ran script', command })
+      expect(presentTool({ ...message, status: 'running' })).toMatchObject({ caption: 'Running script', summary: 'Running script' })
+      expect(presentTool({ ...message, status: 'failed' }).summary).toBe('Failed to run script')
+      expect(presentTool({ ...message, status: 'denied' }).summary).toBe('Rejected: Run script')
+    }
+    expect(presentTool(read('argv', { tool_name: 'run_command', arguments: { argv: ['python', '-c', 'import os\nprint(os.getcwd())'] } })).caption).toBe('Run script')
+  })
+
+  it('prefers a supplied description and keeps ordinary single-line command previews', () => {
+    const command = "@'\nimport os\n'@ | python -"
+    const message = read('described', { tool_name: 'run_command', arguments: { command, description: ' Inspect project modules ' } })
+    expect(presentTool(message)).toMatchObject({ caption: 'Inspect project modules', summary: 'Inspect project modules', command })
+    expect(presentTool({ ...message, status: 'failed' }).summary).toBe('Failed: Inspect project modules')
+    for (const command of ['git status', "echo \"@'\"", 'npm run build\r\n']) {
+      expect(presentTool(read('single-line', { tool_name: 'run_command', arguments: { command, description: '  ' } })).caption).toBe(command.trim())
+    }
   })
 
   it('distinguishes waiting, failed, denied and stopped work from a completed action', () => {
@@ -37,7 +58,9 @@ describe('tool summaries', () => {
     expect(presentTool(read('search', { tool_name: 'search_text', arguments: { pattern: 'class Agent', relative_path: 'src' } })))
       .toMatchObject({ summary: 'Searched class Agent (src)', kind: 'search' })
     expect(presentTool(read('external', { tool_name: 'mcp__docs__lookup', arguments: { query: 'desktop UI' } })))
-      .toMatchObject({ summary: 'Called mcp__docs__lookup · desktop UI', kind: 'tool' })
+      .toMatchObject({ summary: 'Called docs · lookup · desktop UI', name: 'mcp__docs__lookup', kind: 'tool' })
+    expect(presentTool(read('hashed', { tool_name: 'mcp_codegraph_search_nodes_abcdef123456', status: 'failed' })))
+      .toMatchObject({ summary: 'Failed to call codegraph search nodes', name: 'mcp_codegraph_search_nodes_abcdef123456' })
     expect(presentTool(read('inherited-key', { tool_name: 'constructor' }))).toMatchObject({ summary: 'Called constructor', kind: 'tool' })
   })
 
@@ -55,6 +78,70 @@ describe('tool summaries', () => {
 
 const groups = (messages: DisplayMessage[], planTurnIds?: ReadonlySet<string>): ToolGroup[] =>
   groupTranscript(messages, planTurnIds).filter((item): item is ToolGroup => item.role === 'tool-group')
+
+describe('compact activity presentation', () => {
+  it('keeps the current stage visible and failures discoverable during out-of-order completion', () => {
+    const messages = [read('failed', { status: 'failed' }), read('active', { status: 'running', arguments: { path: 'api/pom.xml' } }), read('finished')]
+    expect(presentToolGroup(groups(messages)[0], true)).toMatchObject({ live: true, hasAttention: true })
+    expect(presentToolGroup(groups(messages)[0])?.attention.map(entry => entry.message.id)).toEqual(['failed'])
+    const completed = messages.map(message => message.id === 'active' ? { ...message, status: 'complete' } : message)
+    expect(presentToolGroup(groups(completed)[0], true)).toMatchObject({ live: true, hasAttention: true })
+    expect(presentToolGroup(groups(completed)[0])).toMatchObject({ summary: 'File reads', live: false, hasAttention: true })
+    expect(presentToolGroup(groups(completed)[0])?.attention.map(entry => entry.message.id)).toEqual(['failed'])
+  })
+
+  it('summarizes actual completed activity and preserves incomplete states', () => {
+    expect(presentToolGroup(groups([read('a'), read('b')])[0])?.summary).toBe('Read files')
+    expect(presentToolGroup(groups([read('a', { tool_name: 'edit_file' }), read('b', { tool_name: 'run_command' })])[0]))
+      .toMatchObject({ summary: 'Edited a file and ran a command', icon: 'edit' })
+    expect(presentToolGroup(groups([read('a'), read('b', { tool_name: 'search_tools' })])[0])?.summary).toBe('Read a file and searched tools')
+    expect(presentToolGroup(groups([read('a'), read('b', { status: 'pending' })])[0], true)).toMatchObject({ live: true })
+    expect(presentToolGroup(groups([read('a'), read('b', { status: undefined })])[0])).toMatchObject({ summary: 'File reads', hasAttention: true })
+    expect(presentToolGroup(groups([read('a', { status: 'approval' })])[0])).toBeUndefined()
+  })
+
+  it('keeps all parallel calls visible until both the calls and their stage have ended', () => {
+    const calls = [read('first', { status: 'running', arguments: { path: 'first.ts' } }), read('second', { status: 'running', arguments: { path: 'second.ts' } })]
+    expect(presentToolGroup(groups(calls)[0], true)?.live).toBe(true)
+    calls[1] = { ...calls[1], status: 'complete' }
+    expect(presentToolGroup(groups(calls)[0], true)?.live).toBe(true)
+    expect(presentToolGroup(groups(calls)[0], false)?.live).toBe(true)
+    calls[0] = { ...calls[0], status: 'complete' }
+    const items = groupTranscript(calls)
+    expect(presentToolGroup(groups(calls)[0], true)?.live).toBe(true)
+    expect(presentToolGroup(groups(calls)[0], false)).toMatchObject({ live: false, summary: 'Read files' })
+    expect(currentToolGroupId(items, true)).toBe('group:first')
+    expect(currentToolGroupId(items, false)).toBeUndefined()
+    expect(currentToolGroupId([...items, { id: 'metadata', role: 'assistant', status: 'streaming', content: '[message_id=m' }], true)).toBe('group:first')
+    expect(currentToolGroupId([...items, { id: 'supplement', role: 'user', content: 'Also check the API.' }], true)).toBe('group:first')
+    expect(currentToolGroupId([...items, { id: 'next-stage', role: 'assistant', content: 'Next step' }], true)).toBeUndefined()
+  })
+
+  it('keeps incomplete and rejected actions out of success summaries', () => {
+    for (const status of ['failed', 'denied', 'cancelled', 'pending', 'running', undefined]) {
+      const presentation = presentToolGroup(groups([read('read'), read('command', { tool_name: 'run_command', status })])[0])!
+      expect(presentation.summary).toBe('File reads and commands')
+      expect(presentation.summary).not.toMatch(/Ran|Read a file/)
+    }
+    expect(presentToolGroup(groups([read('only')])[0])?.single).toBe(true)
+    expect(presentToolGroup(groups([read('only'), read('approval', { status: 'approval' })])[0])?.single).toBe(true)
+  })
+
+  it('keeps semantic icons while running and enough path context for identical file names', () => {
+    const cases = [
+      ['list_files', 'src', 'folder'], ['read_file', 'notes.md', 'read'], ['read_file', 'src/App.tsx', 'code'],
+      ['search_text', '', 'search'], ['write_file', 'notes.md', 'edit'], ['run_command', '', 'command'],
+      ['view_image', 'picture.png', 'image'], ['mcp__docs__search', '', 'connection'], ['mcp_codegraph_status', '', 'connection'],
+      ['activate_tools', '', 'tool'], ['run_code', '', 'code'], ['unknown_tool', '', 'tool'], ['update_plan', '', 'plan']
+    ] as const
+    for (const [tool_name, path, icon] of cases) for (const status of ['running', 'complete']) {
+      expect(presentTool(read(tool_name, { tool_name, status, arguments: { path } })).icon).toBe(icon)
+    }
+    expect(toolFileLabel('cache\\pom.xml')).toBe('cache/pom.xml')
+    expect(toolFileLabel('D:\\project\\api\\pom.xml')).toBe('api/pom.xml')
+    expect(toolFileLabel('./README.md')).toBe('README.md')
+  })
+})
 
 describe('stable activity groups', () => {
   it('uses the same group from the first call through additions and out-of-order completion', () => {
@@ -113,12 +200,19 @@ describe('stable activity groups', () => {
       read('command', { tool_name: 'run_command' }), read('wait', { tool_name: 'wait_command' }),
       read('edit', { tool_name: 'edit_file' }), read('write', { tool_name: 'write_file' }),
       read('external-a', { tool_name: 'mcp__docs__lookup' }), read('external-b', { tool_name: 'mcp__docs__lookup' }),
-      read('other', { tool_name: 'mcp__search__lookup' }), read('image', { tool_name: 'view_image' })
+      read('other', { tool_name: 'mcp__search__lookup' })
     ]
     const result = groups(messages)
     expect(result).toHaveLength(1)
     expect(result[0].id).toBe('group:list')
     expect(result.flatMap(group => group.messages)).toEqual(messages)
+  })
+
+  it('keeps image viewing independent and uses it as a group boundary', () => {
+    const image = read('image', { tool_name: 'view_image' })
+    const items = groupTranscript([read('first'), image, read('last')])
+    expect(items.map(item => item.id)).toEqual(['group:first', 'image', 'group:last'])
+    expect(items[1]).toBe(image)
   })
 
   it('does not report a yielded background command or a nonzero exit as completed', () => {
