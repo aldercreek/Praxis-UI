@@ -30,6 +30,7 @@ export interface TranscriptMessage {
   status?: string
   arguments?: Record<string, unknown>
   structured_output?: Record<string, unknown>
+  source?: 'user' | 'agent'
 }
 
 export interface Approval {
@@ -55,6 +56,7 @@ export interface SessionSnapshot {
   approvals: Approval[]
   sequence: number
   pending_inputs?: { command_id: string; content: string }[]
+  sending_input_id?: string | null
   view_events?: PraxisEvent[]
 }
 

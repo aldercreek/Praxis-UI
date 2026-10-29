@@ -93,10 +93,10 @@ describe('changed file chips', () => {
     const html = renderChanged('[文件](docs/my%20file.ts)')
     expect(html).toContain('3 lines added, 2 lines removed')
     expect(html).not.toContain('20 lines added')
-    expect(html).toContain('lucide-file-text')
-    expect(html).not.toContain('lucide-file-code')
+    expect(html).toContain('data-icon="file"')
+    expect(html).not.toContain('data-icon="fileCode"')
     const inline = renderChanged('查看[文件](docs/my%20file.ts)。')
-    expect(inline).toContain('lucide-file-code')
+    expect(inline).toContain('data-icon="fileCode"')
     expect(inline).not.toContain('class="file-stats"')
   })
 

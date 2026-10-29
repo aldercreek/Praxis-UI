@@ -5,7 +5,7 @@
 .mcp-state-connected { color: var(--success); }
 .mcp-state-retrying { color: var(--warning); }
 .mcp-state-failed, .mcp-state-disconnected { color: var(--error); }
-.mcp-status-dot { width: 6px; height: 6px; margin: 0 3.5px; border-radius: 50%; background: currentColor; }
+.mcp-status-dot { width: 6px; height: 6px; margin: 0 4px; border-radius: 50%; background: currentColor; }
 .mcp-loading { display: flex; flex-direction: column; gap: 24px; padding: 15px 0; }
 .mcp-loading > i { width: 42%; height: 12px; border-radius: 3px; background: var(--hover); }
 .mcp-loading > i:nth-of-type(2) { width: 58%; }

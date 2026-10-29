@@ -1,5 +1,5 @@
 import { useContext, useLayoutEffect, useRef } from 'react'
-import { CheckCircle2, ChevronRight, CircleAlert, FileText, Images, ListChecks, Pencil, Search, SquareTerminal } from 'lucide-react'
+import { CheckCircle2, ChevronRight, CircleAlert, FileText, Image, ListChecks, Pencil, Search, Terminal } from './icons'
 import { Disclosure } from './Disclosure'
 import { FileNavigationContext } from './MarkdownContent'
 import { fileChangePreviewPath } from './changeSummary'
@@ -10,8 +10,8 @@ import { FilePathTooltip } from './FilePathTooltip'
 import { fileDiffLines } from './fileDiff'
 
 export function ToolIcon({ kind, failed = false }: { kind: ToolKind; failed?: boolean }) {
-  const Icon = failed ? CircleAlert : { read: FileText, search: Search, edit: Pencil, command: SquareTerminal, image: Images, tool: ListChecks }[kind]
-  return <Icon size={14} className="tool-icon" aria-hidden="true" />
+  const Icon = failed ? CircleAlert : { read: FileText, search: Search, edit: Pencil, command: Terminal, image: Image, tool: ListChecks }[kind]
+  return <Icon size={16} className="tool-icon" aria-hidden="true" />
 }
 
 export function ToolMessage({ message }: { message: DisplayMessage }) {

@@ -1,4 +1,4 @@
-import { Bookmark } from 'lucide-react'
+import { Bookmark } from './icons'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type { DisplayMessage } from './state'

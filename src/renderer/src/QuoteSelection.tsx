@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
-import { Quote } from 'lucide-react'
+import { Quote } from './icons'
 import { createTextQuote, positionQuote, type QuoteAnchor, type QuoteSource, type TextQuote } from './quote'
 
 export type { TextQuote } from './quote'

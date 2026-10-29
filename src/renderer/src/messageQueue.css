@@ -1,0 +1,17 @@
+/* A shared surface behind the queue and composer, matching the supplied reference. */
+.message-queue { background: #f2f2f2; border-radius: 24px 24px 0 0; padding: 8px 16px 30px; margin-bottom: -24px; }
+.message-queue-list { list-style: none; margin: 0; padding: 0; max-height: min(192px, 25vh); overflow-y: auto; scrollbar-width: thin; overscroll-behavior: contain; }
+.message-queue-item { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; height: 48px; border-radius: 6px; }
+.message-queue-item:not(:last-child)::after { content: ''; position: absolute; inset: auto 0 0; height: 1px; background: #dedede; pointer-events: none; }
+.message-queue-item[draggable=true] { cursor: grab; }
+.message-queue-item.is-dragging { opacity: .4; }
+.message-queue-item.is-drop-target { background: #e4e4e4; }
+.queue-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font: 500 14px/22px var(--font-ui); }
+.queue-actions { display: grid; grid-auto-flow: column; grid-auto-columns: 32px; align-items: center; flex: none; gap: 8px; }
+.queue-actions button, .queue-grip { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; line-height: 1; border: 0; border-radius: 6px; color: var(--ink); background: transparent; }
+.queue-actions button:hover:not(:disabled) { background: #e2e2e2; }
+.queue-actions button:disabled { opacity: .45; cursor: default; }
+.queue-grip { width: 16px; color: #b8b8b8; cursor: grab; }
+.queue-grip:disabled { cursor: default; opacity: 1; }
+.message-queue + .composer { position: relative; }
+@media (max-width: 640px) { .message-queue { border-radius: 20px 20px 0 0; padding-inline: 12px; } .queue-actions { gap: 4px; } }

@@ -16,7 +16,6 @@
     "package": "npm run icons && npm run build && electron-builder --dir"
   },
   "dependencies": {
-    "lucide-react": "^0.468.0",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
@@ -46,7 +45,8 @@
     "files": [
       "out/**/*",
       "package.json",
-      "resources/brand/icon.png"
+      "resources/brand/icon.png",
+      "resources/icons/README.md"
     ],
     "win": {
       "target": "dir",

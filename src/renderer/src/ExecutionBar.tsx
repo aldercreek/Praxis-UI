@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronRight, Circle, CircleAlert, ListChecks, LoaderCircle, Square, X } from 'lucide-react'
+import { Check, ChevronRight, Circle, CircleAlert, ListChecks, LoaderCircle, Stop, X } from './icons'
 import { Disclosure } from './Disclosure'
 import { presentExecution } from './executionPresentation'
 import { isBusy, type Conversation, type PlanStep } from './state'
@@ -8,7 +8,7 @@ import { isBusy, type Conversation, type PlanStep } from './state'
 export function PlanSteps({ plan }: { plan: PlanStep[] }) {
   return <ol className="plan-steps">{plan.map((step, index) => <li key={index} className={step.status}
     aria-label={`${step.status === 'completed' ? 'Completed' : step.status === 'in_progress' ? 'Current step' : 'Pending'}: ${step.description}`}>
-    {step.status === 'completed' ? <Check size={13} /> : step.status === 'in_progress' ? <span className="plan-current-dot" aria-hidden="true" /> : <Circle size={12} />}
+    {step.status === 'completed' ? <Check size={14} /> : step.status === 'in_progress' ? <span className="plan-current-dot" aria-hidden="true" /> : <Circle size={14} />}
     <span>{step.description}</span>
   </li>)}</ol>
 }
@@ -84,7 +84,7 @@ export function ExecutionBar({ conversation }: { conversation: Conversation }) {
 
   return <div className="execution-bar" ref={ref}>
     <div className={`execution-status execution-${status.tone}`} role="status" aria-live="polite" aria-atomic="true">
-      {status.tone === 'attention' || status.tone === 'failed' ? <CircleAlert size={13} /> : busy ? null : conversation.summary?.status === 'cancelled' ? <Square size={10} /> : <Check size={13} />}
+      {status.tone === 'attention' || status.tone === 'failed' ? <CircleAlert size={14} /> : busy ? null : conversation.summary?.status === 'cancelled' ? <Stop size={14} /> : <Check size={14} />}
       <span className={busy && status.tone === 'working' ? 'text-sweep' : undefined} title={visibleStatus.label}>{visibleStatus.label}</span>
     </div>
     {plan.length > 0 && <>

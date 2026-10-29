@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, Check, Copy, FileCode2, FileImage, FileSpreadsheet, FileText, Presentation } from 'lucide-react'
+import { Archive, Check, Copy, FileCode2, FileImage, FileSpreadsheet, FileText, Presentation } from './icons'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { contentLink, fileName, isAbsoluteFileReference, safeContentUrl } from './fileLinks'
@@ -38,7 +38,7 @@ function ContentLink({ href, children, label, row, imageLink }: { href?: string;
       <span className="file-reference-icon" aria-hidden="true"><FileText size={16} /></span>
       <ReferenceName name={name} />
       {totals && <span className="file-stats" aria-label={`${change!.edits.length > 1 ? 'Total changes: ' : ''}${totals.added} lines added, ${totals.removed} lines removed`}><span className="added">+{totals.added}</span><span className="removed">−{totals.removed}</span></span>}
-    </> : <><Icon size={13} aria-hidden="true" /><ReferenceName name={name} /></>
+    </> : <><Icon size={14} aria-hidden="true" /><ReferenceName name={name} /></>
     if (!available || !navigation) return <span className={className} title={title} aria-disabled="true">{content}</span>
     return <FilePathTooltip path={title}><a href={href} className={className} aria-label={(row ? [description, name] : [name, description]).filter(Boolean).join(' · ')} onClick={event => { event.preventDefault(); if (matched && turnFiles) turnFiles.openChanges(matched.turnId, matched.file.id); else navigation.openFile(link.path) }}>{content}</a></FilePathTooltip>
   }
@@ -71,7 +71,7 @@ function ContentImage({ src, alt }: { src?: string | Blob; alt?: string }) {
     if (path) navigation?.openFile(path)
     else if (link?.kind === 'external') void window.praxis?.openExternal(link.url).catch(error => navigation?.onError(String(error)))
   }} disabled={!link || link.kind === 'anchor' || link.kind === 'file' && !path}>
-    {hasImage && image ? <img src={image.url} alt={label} loading="lazy" /> : <><FileImage size={15} /><span>{label}</span></>}
+    {hasImage && image ? <img src={image.url} alt={label} loading="lazy" /> : <><FileImage size={16} /><span>{label}</span></>}
   </button>
 }
 
@@ -80,7 +80,7 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
   const [copied, setCopied] = useState(false)
   return <div className="code-block"><pre ref={ref}>{children}</pre><button className="code-copy" type="button" aria-label="Copy code" title="Copy code" onClick={() => {
     void navigator.clipboard.writeText(ref.current?.innerText || '').then(() => setCopied(true)).catch(() => setCopied(false))
-  }}>{copied ? <Check size={13} /> : <Copy size={13} />}</button></div>
+  }}>{copied ? <Check size={14} /> : <Copy size={14} />}</button></div>
 }
 
 const components: Components = {

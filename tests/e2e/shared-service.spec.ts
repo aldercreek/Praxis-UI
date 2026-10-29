@@ -94,6 +94,87 @@ test.afterEach(async () => {
   expect(errors).toEqual([])
 })
 
+test('composer queue supports editing, ordering, deleting, pausing and sending without duplicate bubbles', async ({}, testInfo) => {
+  test.setTimeout(90_000)
+  const send = async (text: string) => {
+    await page.locator('textarea').fill(text)
+    await expect(page.locator('.send-button[type=submit]')).toBeEnabled()
+    await page.locator('textarea').press('Enter')
+    await expect(page.locator('textarea')).toHaveValue('')
+  }
+  await send('hold this turn for queue review')
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+  await expect(page.locator('.message-queue')).toHaveCount(0)
+  await expect(page.locator('.user-content')).toHaveText('hold this turn for queue review')
+  await expect.poll(async () => (await request<{ sessions: SessionSummary[] }>('/api/sessions'))
+    .sessions.some(item => item.title === 'hold this turn for queue review')).toBe(true)
+  const { sessions } = await request<{ sessions: SessionSummary[] }>('/api/sessions')
+  const session = sessions.find(item => item.title === 'hold this turn for queue review')!
+  // The optimistic Stop button appears before the service starts the model.
+  // Wait for the held request so follow-ups cannot join its initial input batch.
+  await expect.poll(async () => {
+    const snapshot = await request<SessionSnapshot>(`/api/sessions/${session.id}/snapshot`)
+    return snapshot.view_events?.some(event => event.event === 'ModelRequestStarted' && event.turn_id === snapshot.session.active_turn?.id)
+  }).toBe(true)
+  const texts = ['新增功能可以帮我用团队做一下', '还有就是帮我检查一下测试', '最后总结修改结果']
+  for (const text of texts) await send(text)
+  const queue = page.getByRole('region', { name: 'Queued messages', exact: true })
+  const rows = page.locator('.message-queue-item')
+  await expect(page.locator('.queue-preview')).toHaveText(texts)
+  await expect(page.locator('.user-content')).toHaveCount(1)
+  const pending = async () => (await request<SessionSnapshot>(`/api/sessions/${session.id}/snapshot`)).pending_inputs?.map(item => item.content)
+  await rows.nth(2).getByRole('button', { name: 'Reorder message 3' }).press('Alt+ArrowUp')
+  await expect(page.locator('.queue-preview')).toHaveText([texts[0], texts[2], texts[1]])
+  await expect.poll(pending).toEqual([texts[0], texts[2], texts[1]])
+  await rows.nth(0).dragTo(rows.nth(2))
+  await expect(page.locator('.queue-preview')).toHaveText([texts[2], texts[1], texts[0]])
+  await expect.poll(pending).toEqual([texts[2], texts[1], texts[0]])
+  await page.locator('textarea').fill('已有草稿')
+  await rows.nth(1).getByRole('button', { name: 'Edit message', exact: true }).click()
+  await expect(page.locator('textarea')).toHaveValue(texts[1] + '\n\n已有草稿')
+  await expect(page.locator('textarea')).toBeFocused()
+  await expect(page.locator('.queue-preview')).toHaveText([texts[2], texts[0]])
+  await rows.first().getByRole('button', { name: 'Delete message', exact: true }).click()
+  await expect(page.locator('.queue-preview')).toHaveText([texts[0]])
+  await page.locator('textarea').fill('')
+  await screenshot(testInfo.outputPath('message-queue-single.png'), page.locator('.composer-region'))
+  await send(texts[1])
+  await queue.click({ position: { x: 8, y: 8 } })
+  await screenshot(testInfo.outputPath('message-queue-desktop.png'))
+  await screenshot(testInfo.outputPath('message-queue-composer.png'), page.locator('.composer-region'))
+  const metrics = await queue.evaluate(element => {
+    const row = element.querySelector('.message-queue-item')!
+    const style = getComputedStyle(element)
+    const textStyle = getComputedStyle(element.querySelector('.queue-preview')!)
+    return { background: style.backgroundColor, radius: style.borderTopLeftRadius, rowHeight: row.getBoundingClientRect().height, fontSize: textStyle.fontSize }
+  })
+  expect(metrics).toEqual({ background: 'rgb(242, 242, 242)', radius: '24px', rowHeight: 48, fontSize: '14px' })
+  await rows.first().getByRole('button', { name: 'Edit message' }).hover()
+  await screenshot(testInfo.outputPath('message-queue-hover.png'), queue)
+  const size = await application!.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    const size = window.getContentSize()
+    window.setMinimumSize(480, 400)
+    window.setContentSize(600, 640)
+    return size
+  })
+  await expect(rows.first().getByRole('button', { name: 'Send now', exact: true })).toBeInViewport()
+  await expect(rows.last().getByRole('button', { name: 'Delete message', exact: true })).toBeInViewport()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+  await screenshot(testInfo.outputPath('message-queue-compact.png'))
+  await application!.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(size[0], size[1]), size)
+  await page.getByRole('button', { name: 'Stop', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Paused messages', exact: true })).toBeVisible()
+  await page.reload()
+  await page.locator('.session-item').filter({ hasText: session.title }).click()
+  await expect(page.locator('.queue-preview')).toHaveText([texts[0], texts[1]])
+  await rows.last().getByRole('button', { name: 'Send now', exact: true }).click()
+  await expect(page.getByRole('article', { name: 'Assistant response' }).last()).toContainText('offline response')
+  await expect(page.locator('.message-queue')).toHaveCount(0)
+  await expect(page.locator('.user-content')).toHaveText(['hold this turn for queue review', texts[1], texts[0]])
+  await expect.poll(pending).toEqual([])
+})
+
 test('restores saved chats and discovers other clients across workspaces without losing live state', async ({}, testInfo) => {
   // MCP starts before any session Agent exists, using the actual stdio transport.
   await expect.poll(() => request('/api/mcp/servers')).toEqual({ servers: [

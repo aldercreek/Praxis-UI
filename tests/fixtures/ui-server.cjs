@@ -324,11 +324,19 @@ function dispatch(request) {
         const data = frame.data || {}
         if (frame.event === 'TurnSettled') s.status = data.status || 'idle'
         event(s, frame.event, data, frame.agent_id || 'main')
+        if (frame.event === 'MessagesReceived' && data.source === 'user') {
+          s.pendingInputs = (s.pendingInputs || []).filter(input => !data.items?.some(item => item.content === input.content))
+          event(s, 'InputsChanged', { inputs: s.pendingInputs })
+        }
       }
       return reply({ sequence: s.sequence })
     }
     reply({ queued: true })
-    if (s.deferInputs) return
+    if (s.deferInputs) {
+      s.pendingInputs = [...(s.pendingInputs || []), { command_id: p.command_id, content: p.text }]
+      event(s, 'InputsChanged', { inputs: s.pendingInputs })
+      return
+    }
     event(s, 'MessagesReceived', { source: 'user', items: [{ role: 'user', content: p.text }] })
     return
   }

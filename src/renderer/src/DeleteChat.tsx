@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
-import { Ellipsis, Trash2, X } from 'lucide-react'
+import { Ellipsis, Trash2, X } from './icons'
 import type { SessionSummary } from '../../shared/protocol'
 
 export function ChatActions({ session, onDelete }: { session: SessionSummary; onDelete: () => void }) {
@@ -17,7 +17,7 @@ export function ChatActions({ session, onDelete }: { session: SessionSummary; on
         target.querySelector('button')?.focus()
       }}><Ellipsis size={16} /></button>
     <div ref={menu} id={id} popover="auto" role="menu" className="chat-menu">
-      <button type="button" role="menuitem" onClick={() => { menu.current?.hidePopover(); trigger.current?.focus(); onDelete() }}><Trash2 size={15} />Delete chat</button>
+      <button type="button" role="menuitem" onClick={() => { menu.current?.hidePopover(); trigger.current?.focus(); onDelete() }}><Trash2 size={16} />Delete chat</button>
     </div>
   </>
 }

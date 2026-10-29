@@ -40,7 +40,7 @@
 .praxis-approval-number { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 7px; background: color-mix(in srgb, var(--approval-color) 7%, #fff); font-size: 14px; font-weight: 400; line-height: 1; transition: background .15s; }
 .praxis-approval-option.selected .praxis-approval-number, .praxis-approval-option:hover:not(:disabled) .praxis-approval-number { background: #fff; }
 .praxis-approval-option-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.praxis-approval-option > svg { flex: none; margin-left: auto; color: currentColor; stroke-width: 2; opacity: 0; transition: opacity .15s; }
+.praxis-approval-option > svg { flex: none; margin-left: auto; color: currentColor; opacity: 0; transition: opacity .15s; }
 .praxis-approval-option.selected > svg, .praxis-approval-option:hover:not(:disabled) > svg, .praxis-approval-option:focus-visible > svg { opacity: 1; }
 .praxis-approval-feedback { margin: 8px 20px 0; color: #00000080; font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
 .praxis-approval-error { color: #b42c3f; }

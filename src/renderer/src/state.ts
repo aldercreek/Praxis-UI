@@ -1,4 +1,5 @@
 import type { Approval, PraxisEvent, SessionSnapshot, SessionSummary, TranscriptMessage } from '../../shared/protocol'
+import { readAgentReports } from './messagePresentation'
 
 export interface DisplayMessage extends TranscriptMessage {
   output?: string
@@ -30,6 +31,7 @@ export interface Conversation {
   loaded: boolean
   activity: string
   pendingInputs: { command_id: string; content: string }[]
+  sendingInputId?: string
   pausedInputs: string[]
 }
 
@@ -257,7 +259,7 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
       if (!child && Array.isArray(data.items)) {
         next.messages = data.items.reduce<DisplayMessage[]>((messages, item) => {
           const value = objectOf(item)
-          if (data.source !== 'user' && value.role !== 'user') return messages
+          if (data.source === 'agent' || value.role !== 'user') return messages
           const content = Array.isArray(value.content) ? value.content.map(part => textOf(objectOf(part).text)).join('\n') : textOf(value.content)
           if (content) next.pausedInputs = next.pausedInputs.filter(text => text !== content)
           return content ? addUserMessage(messages, content, event) : messages
@@ -268,10 +270,11 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
       next.messages = updateMessage(current.messages, `agent:${event.turn_id}:${event.agent_id}`, message => ({ ...message, id: `agent:${event.turn_id}:${event.agent_id}`, role: 'system', content: textOf(data.task_summary) || message?.content || 'Subtask', turn_id: event.turn_id, agent_id: event.agent_id, status: textOf(data.status) }))
       break
     case 'ChildAgentMessage':
-      next.messages = [...current.messages, { id: `child-message:${event.sequence}`, role: 'assistant', content: textOf(data.content), agent_id: event.agent_id, turn_id: event.turn_id }]
+      next.messages = [...current.messages, { id: `child-message:${event.sequence}`, role: 'assistant', content: textOf(data.content), agent_id: event.agent_id, turn_id: event.turn_id, source: 'agent' }]
       break
     case 'InputsChanged':
       next.pendingInputs = (data.inputs || []) as { command_id: string; content: string }[]
+      next.sendingInputId = textOf(data.sending_input_id) || undefined
       next.pausedInputs = next.pendingInputs.map(item => item.content)
       break
     case 'InputsPaused':
@@ -322,7 +325,20 @@ export function applySnapshot(snapshot: SessionSnapshot, buffered: PraxisEvent[]
   // Cold history contains message IDs but no turn IDs. Use stable user-message
   // sections for display only; live protocol IDs always take precedence.
   let historyTurnId = `history:${snapshot.session.id}:start`
-  const history = snapshot.messages.map(message => {
+  // Older services projected model-only envelopes as ordinary user/system text.
+  // Recover their sender identity without exposing the envelope in the main chat.
+  const restored: DisplayMessage[] = []
+  for (const message of snapshot.messages) {
+    const reports = message.source !== 'user' && (message.role === 'user' || message.role === 'system') ? readAgentReports(message.content) : undefined
+    if (!reports) { restored.push(message); continue }
+    for (const [index, report] of reports.entries()) {
+      const agent = isChildAgent(message.agent_id) ? message.agent_id : report.recipient_id === 'parent' ? report.sender_id : undefined
+      if (!agent || !isChildAgent(agent)) continue
+      if (snapshot.messages.some(other => other.agent_id === agent && other.turn_id === message.turn_id && other.content === report.content)) continue
+      restored.push({ ...message, id: `${message.id}:report:${index}`, role: report.recipient_id === 'parent' ? 'assistant' : 'user', agent_id: agent, content: report.content, source: 'agent' })
+    }
+  }
+  const history = restored.map(message => {
     if (message.turn_id) {
       if (!isChildAgent(message.agent_id)) historyTurnId = message.turn_id
       return message
@@ -348,6 +364,7 @@ export function applySnapshot(snapshot: SessionSnapshot, buffered: PraxisEvent[]
     approvals: snapshot.approvals, sequence: snapshot.sequence, loaded: true,
     activity: isBusy(snapshot.session.status) ? 'Running' : '',
     pendingInputs: snapshot.pending_inputs || [],
+    sendingInputId: snapshot.sending_input_id || undefined,
     pausedInputs: (snapshot.pending_inputs || []).map(item => item.content)
   }
   for (const event of buffered) current = applyEvent(current, event)

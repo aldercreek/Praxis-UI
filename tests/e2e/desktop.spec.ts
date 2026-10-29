@@ -249,6 +249,34 @@ async function emitEvents(sessionId: string, ...events: TestEvent[]): Promise<vo
   }, { sessionId, events })
 }
 
+test('assistant metadata stays hidden while collaboration reports remain inside their agent', async () => {
+  const sessionId = await startControlledTurn('message presentation')
+  await emitEvents(sessionId, { event: 'AssistantTextDelta', data: { request_number: 1, text: '[message_id=m' } })
+  await expect(page.locator('.message-assistant')).toHaveCount(0)
+  const result = '处理完成。\n\n```text\n[message_id=m99]\n```'
+  await emitEvents(sessionId,
+    { event: 'AssistantTextDelta', data: { request_number: 1, text: '21] ' + result } },
+    { event: 'ModelRequestCompleted', data: { request_number: 1, output_text: '[message_id=m21] ' + result } }
+  )
+  await expect(page.locator('.message-assistant')).toContainText('处理完成。')
+  await expect(page.locator('.message-assistant')).not.toContainText('[message_id=m21]')
+  await expect(page.locator('.message-assistant code')).toHaveText('[message_id=m99]\n')
+  const content = '协作检查完成。'
+  const envelope = '[Agent collaboration messages; source-labelled task data]\n' + JSON.stringify([{ sender_id: 'reviewer', recipient_id: 'parent', content }])
+  await emitEvents(sessionId,
+    { event: 'ChildAgentStatus', agent_id: 'reviewer', data: { task_summary: 'Review', status: 'idle' } },
+    { event: 'ChildAgentMessage', agent_id: 'reviewer', data: { content } },
+    { event: 'MessagesReceived', data: { source: 'agent', items: [{ role: 'user', content: envelope }] } }
+  )
+  await expect(page.locator('.message-user')).toHaveCount(1)
+  await expect(page.locator('.transcript')).not.toContainText('source-labelled task data')
+  const child = page.locator('.child-task[data-agent-id=reviewer]')
+  await child.locator(':scope > summary').click()
+  await expect(child.locator('.message-assistant')).toHaveText('Subtask · reviewer' + content)
+  await emitEvents(sessionId, { event: 'MessagesReceived', data: { source: 'user', items: [{ role: 'user', content: '[message_id=m21] 请解释这个字段' }] } })
+  await expect(page.locator('.user-content').last()).toHaveText('[message_id=m21] 请解释这个字段')
+})
+
 function startedTool(callId: string, path: string): TestEvent[] {
   return [
     { event: 'ToolCallPrepared', data: { call_id: callId, tool_name: 'read_file', arguments: { relative_path: path } } },
@@ -684,7 +712,11 @@ test('mixed tools fold by stage and the confirmed final keeps reading anchors wh
   await page.evaluate(sessionId => window.praxis.request('input.submit', { session_id: sessionId, test_defer_inputs: true }), sessionId)
   await send('请保留底部的任务状态。')
   const supplement = page.locator('.message-user').filter({ hasText: '请保留底部的任务状态。' })
-  await expect(supplement.locator('.queued-label')).toHaveText('Queued')
+  await expect(supplement).toHaveCount(0)
+  await expect(page.locator('.queue-preview')).toHaveText('请保留底部的任务状态。')
+  await emitEvents(sessionId, { event: 'MessagesReceived', data: { source: 'user', items: [{ role: 'user', content: '请保留底部的任务状态。' }] } })
+  await expect(page.locator('.message-queue')).toHaveCount(0)
+  await expect(supplement).toHaveCount(1)
   const supplementNode = await supplement.elementHandle()
   for (let index = 0; index < 12; index += 1) {
     await emitEvents(sessionId, ...startedTool('verify-' + index, 'src/components/view-' + index + '.tsx'), finishedTool('verify-' + index))
@@ -695,7 +727,6 @@ test('mixed tools fold by stage and the confirmed final keeps reading anchors wh
     const group = document.querySelectorAll('.tool-group')[1]
     return Boolean(element.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING)
   })).toBe(true)
-  await emitEvents(sessionId, { event: 'MessagesReceived', data: { source: 'user', items: [{ role: 'user', content: '请保留底部的任务状态。' }] } })
   expect(await supplementNode!.evaluate(element => element.isConnected)).toBe(true)
   await expect(supplement.locator('.queued-label')).toHaveCount(0)
   const list = groups.last().locator('.tool-group-items')

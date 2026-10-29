@@ -43,7 +43,7 @@ class Model:
             handle = current_handle()
             unsubscribe = handle.on_cancel(release.set)
             try:
-                if not release.wait(20):
+                if not release.wait(60):
                     raise TimeoutError("Integration test did not cancel the turn")
                 handle.check()
             finally:

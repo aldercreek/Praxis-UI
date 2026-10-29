@@ -232,14 +232,14 @@ export function usePraxis() {
         setConversations(previous => ({ ...previous, [sessionId!]: { ...(previous[sessionId!] || emptyConversation()), summary: result.session, loaded: true } }))
         setActiveId(sessionId)
       }
-      queued = isBusy(conversationsRef.current[sessionId]?.summary?.status)
+      queued = isBusy(conversationsRef.current[sessionId]?.summary?.status) || Boolean(conversationsRef.current[sessionId]?.pendingInputs.length)
       if (removed.current.has(sessionId)) throw new Error('This chat has been deleted.')
       setConversations(previous => {
         const conversation = previous[sessionId!] || emptyConversation()
         return { ...previous, [sessionId!]: {
           ...conversation,
           summary: conversation.summary ? { ...conversation.summary, status: queued ? conversation.summary.status : 'running' } : undefined,
-          messages: [...conversation.messages, { id: messageId, role: 'user', content: text, status: queued ? 'queued' : 'sending', turn_id: queued ? conversation.activeTurnId : undefined }],
+          messages: queued ? conversation.messages : [...conversation.messages, { id: messageId, role: 'user', content: text, status: 'sending' }],
           activity: queued ? conversation.activity : 'Starting'
         } }
       })
@@ -297,7 +297,13 @@ export function usePraxis() {
   const deleteInput = useCallback(async (commandId: string) => {
     if (!activeId) return
     try { await api.request('input.delete', { session_id: activeId, command_id: commandId }) }
-    catch (error) { setError(errorMessage(error)) }
+    catch (error) { setError(errorMessage(error)); throw error }
+  }, [activeId, api])
+
+  const queueAction = useCallback(async (action: 'edit' | 'reorder' | 'send', params: Record<string, unknown>) => {
+    if (!activeId) throw new Error('Open a chat first.')
+    try { return await api.request<{ content?: string }>(`input.${action}`, { ...params, session_id: activeId, command_id: crypto.randomUUID() }) }
+    catch (error) { setError(errorMessage(error)); throw error }
   }, [activeId, api])
 
   const saveSettings = useCallback(async (settings: Partial<Omit<DesktopSettings, 'apiKeyConfigured'>> & { apiKey?: string }) => {
@@ -322,7 +328,7 @@ export function usePraxis() {
   return {
     api, info, connection, conversations, activeId, active: activeId ? conversations[activeId] : undefined,
     workspace, sessions, error, setError, listState, sending, configured, loadingSession,
-    refresh, openSession, newChat, chooseWorkspace, send, stop, approve, resumeInputs, deleteInput, saveSettings,
+    refresh, openSession, newChat, chooseWorkspace, send, stop, approve, resumeInputs, deleteInput, queueAction, saveSettings,
     deleteSession, deleteFailure, removedSessionIds: removed.current
   }
 }

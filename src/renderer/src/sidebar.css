@@ -65,7 +65,7 @@
 .praxis-sidebar button:focus-visible { outline: 2px solid #777; outline-offset: -2px; }
 .ps-context-menu { position: fixed; z-index: 40; display: flex; flex-direction: column; gap: 2px; min-width: 216px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow: auto; padding: 8px; border: .5px solid #dedede; border-radius: 16px; background: #fff; color: #000000e6; box-shadow: 0 2px 8px #0000001c; outline: 0; animation: ps-menu-in 150ms ease-out; }
 .ps-context-menu > button { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; min-height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: inherit; text-align: left; font: 400 14px/22px var(--ps-font); white-space: nowrap; }
-.ps-context-menu > button > svg { flex: none; stroke-width: 1.5; }
+.ps-context-menu > button > svg { flex: none; }
 .ps-context-menu > button:hover, .ps-context-menu > button:focus { outline: 0; background: #f1f1f1; }
 .ps-context-menu > .ps-menu-danger { color: #d93036; }
 .ps-context-menu > .ps-menu-danger:hover, .ps-context-menu > .ps-menu-danger:focus { background: #fff1f1; }

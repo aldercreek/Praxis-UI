@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, Copy } from 'lucide-react'
+import { Check, Copy } from './icons'
 
 export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
@@ -11,5 +11,5 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
       clearTimeout(timer.current)
       timer.current = setTimeout(() => setCopied(false), 1800)
     }).catch(() => setCopied(false))
-  }}>{copied ? <Check size={14} /> : <Copy size={14} />}</button>
+  }}>{copied ? <Check size={16} /> : <Copy size={16} />}</button>
 }

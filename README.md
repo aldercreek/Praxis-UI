@@ -56,7 +56,7 @@ npm run build
 npm start
 ```
 
-`npm run package` creates a local unpacked application. A separate Praxis Python environment is still required; the desktop package does not bundle the backend.
+`npm run package` updates the local unpacked application in `release/`. On Windows, open `release/win-unpacked/Praxis.exe`. Reuse this directory for every build; do not create release directories named after dates or features. Close the packaged desktop before rebuilding so its files can be replaced. A separate Praxis Python environment is still required; the desktop package does not bundle the backend.
 
 ## Shared sessions
 

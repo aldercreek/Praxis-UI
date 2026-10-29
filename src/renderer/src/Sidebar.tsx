@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Folder, PanelLeft, Pin, Plus, Search, Settings2, Share2, Trash2, X } from 'lucide-react'
+import { Folder, PanelLeft, Pin, Plus, Search, Settings2, Share2, Trash2, X } from './icons'
 import praxisMark from '../../../resources/brand/praxis-mark.svg'
 import type { SessionSummary } from '../../shared/protocol'
 import { baseName, errorMessage, usePraxis } from './usePraxis'
@@ -165,10 +165,10 @@ function SessionContextMenu({ target, id, pinned, close, togglePin, share, remov
   return createPortal(<div ref={menu} id={id} role="menu" tabIndex={-1} className="ps-context-menu"
     aria-label={`Actions for ${target.session.title || 'New chat'}`} onKeyDown={onKeyDown}
     style={{ left: target.x, top: target.y }} onContextMenu={event => event.preventDefault()}>
-    <button type="button" role="menuitem" tabIndex={-1} onClick={togglePin}><Pin size={16} aria-hidden="true" /><span>{pinned ? 'Unpin chat' : 'Pin chat'}</span></button>
-    <button type="button" role="menuitem" tabIndex={-1} onClick={share}><Share2 size={16} aria-hidden="true" /><span>Share chat</span></button>
+    <button type="button" role="menuitem" tabIndex={-1} onClick={togglePin}><Pin size={18} aria-hidden="true" /><span>{pinned ? 'Unpin chat' : 'Pin chat'}</span></button>
+    <button type="button" role="menuitem" tabIndex={-1} onClick={share}><Share2 size={18} aria-hidden="true" /><span>Share chat</span></button>
     <div className="ps-menu-divider" role="separator" />
-    <button type="button" role="menuitem" tabIndex={-1} className="ps-menu-danger" onClick={remove}><Trash2 size={16} aria-hidden="true" /><span>Delete chat</span></button>
+    <button type="button" role="menuitem" tabIndex={-1} className="ps-menu-danger" onClick={remove}><Trash2 size={18} aria-hidden="true" /><span>Delete chat</span></button>
   </div>, document.body)
 }
 
@@ -233,11 +233,11 @@ export function Sidebar({ praxis, openSettings, collapsed, toggleSidebar, onDele
 
   return <aside ref={sidebar} className={`sidebar praxis-sidebar${collapsed ? ' collapsed' : ''}`} aria-label="Session navigation">
     <div className="ps-brand-row"><span className="ps-brand"><span className="ps-brand-mark"><img src={praxisMark} alt="" aria-hidden="true" /></span>Praxis</span>
-      <button type="button" className="ps-icon-button" aria-label="Collapse sidebar" title="Collapse sidebar" onClick={toggleSidebar}><PanelLeft size={16} /></button>
+      <button type="button" className="ps-icon-button" aria-label="Collapse sidebar" title="Collapse sidebar" onClick={toggleSidebar}><PanelLeft size={18} /></button>
     </div>
     <div className="ps-sidebar-content">
-      <button type="button" className={`ps-new-chat${!praxis.activeId ? ' active' : ''}`} aria-label="New chat" onClick={praxis.newChat}><Plus size={16} aria-hidden="true" /><span>New chat</span></button>
-      <label className="ps-session-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="Search chats" placeholder="Search chats" value={query} onChange={event => setQuery(event.target.value)} />
+      <button type="button" className={`ps-new-chat${!praxis.activeId ? ' active' : ''}`} aria-label="New chat" onClick={praxis.newChat}><Plus size={18} aria-hidden="true" /><span>New chat</span></button>
+      <label className="ps-session-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="Search chats" placeholder="Search chats" value={query} onChange={event => setQuery(event.target.value)} />
         {query && <button type="button" className="ps-icon-button" aria-label="Clear search" onClick={() => setQuery('')}><X size={12} /></button>}
       </label>
       <div className="session-list ps-session-list" aria-busy={loading}>
@@ -261,7 +261,7 @@ export function Sidebar({ praxis, openSettings, collapsed, toggleSidebar, onDele
                 setTarget({ session, anchor: event.currentTarget, x: bounds.left + 12, y: bounds.bottom, keyboard: true })
               }}>
               <SessionTitle title={title} suspended={Boolean(target || shareTarget || collapsed)} />
-              {pinned.has(session.id) && <Pin size={13} className="ps-session-pin" aria-hidden="true" />}
+              {pinned.has(session.id) && <Pin size={14} className="ps-session-pin" aria-hidden="true" />}
             </button>
           })}</section>)}
       </div>
@@ -271,9 +271,9 @@ export function Sidebar({ praxis, openSettings, collapsed, toggleSidebar, onDele
       <div className="ps-footer-actions">
         <button type="button" className="ps-workspace-picker" onClick={() => void praxis.chooseWorkspace()}
           title={`Workspace for new chats: ${praxis.workspace || 'Choose workspace'}`} disabled={!praxis.api}>
-          <Folder size={16} aria-hidden="true" /><span>{praxis.workspace ? baseName(praxis.workspace) : 'Choose workspace'}</span>
+          <Folder size={18} aria-hidden="true" /><span>{praxis.workspace ? baseName(praxis.workspace) : 'Choose workspace'}</span>
         </button>
-        <button type="button" className="icon-button" aria-label="Settings" title="Settings (Ctrl+,)" onClick={openSettings}><Settings2 size={16} /></button>
+        <button type="button" className="icon-button" aria-label="Settings" title="Settings (Ctrl+,)" onClick={openSettings}><Settings2 size={18} /></button>
       </div>
     </div>
     {target && <SessionContextMenu target={target} id={menuId} pinned={pinned.has(target.session.id)} close={closeMenu} togglePin={togglePin}

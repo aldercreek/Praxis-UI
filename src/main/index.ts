@@ -24,7 +24,7 @@ app.on('second-instance', () => { if (!testMode) { window?.show(); window?.focus
 
 const methods = new Set([
   'initialize', 'mcp.status', 'session.list', 'session.create', 'session.open', 'session.delete',
-  'input.submit', 'input.resume', 'input.delete', 'turn.cancel', 'approval.decide'
+  'input.submit', 'input.resume', 'input.delete', 'input.edit', 'input.reorder', 'input.send', 'turn.cancel', 'approval.decide'
 ])
 
 function info(): DesktopInfo {
@@ -108,7 +108,13 @@ function registerIPC(): void {
     trusted(event)
     if (typeof sessionId === 'string' && typeof sequence === 'number') backend.acknowledge(sessionId, sequence)
   })
-  ipcMain.handle('praxis:info', event => { trusted(event); return info() })
+  ipcMain.handle('praxis:info', async event => {
+    trusted(event)
+    // Joining a shared service adopts its settings after the connection opens.
+    // Do not let the renderer retain the desktop defaults from that interval.
+    if (connecting) await connecting.catch(() => { /* Return the error state and editable settings. */ })
+    return info()
+  })
   ipcMain.handle('praxis:request', async (event, method: unknown, params: unknown = {}) => {
     trusted(event)
     if (typeof method !== 'string' || !methods.has(method)) throw new Error('Unsupported Praxis operation')

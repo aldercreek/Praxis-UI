@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ArrowRight, ChevronDown, Square } from 'lucide-react'
+import { ArrowRight, ChevronDown, Stop } from './icons'
 import type { Approval } from '../../shared/protocol'
 import { presentApproval, submitApprovalDecision } from './approvalPresentation'
 import './approval.css'
@@ -145,7 +145,7 @@ function ApprovalRequest({ approval, context, onStop, stopping }: { approval: Ap
   }
   return <section className="praxis-approval" aria-label="Tool approval" aria-busy={pending}>
     <div className="praxis-approval-heading">
-      <div className="praxis-approval-title"><h2>{view.tool === 'run_command' ? 'Run Command?' : 'Allow this action?'}</h2><span className="visually-hidden" aria-live="polite">{context.approvals.length} pending</span>{onStop && <button type="button" className="icon-button praxis-approval-stop" aria-label="Stop" title="Stop task" disabled={stopping} onClick={onStop}><Square size={10} fill="currentColor" /></button>}</div>
+      <div className="praxis-approval-title"><h2>{view.tool === 'run_command' ? 'Run Command?' : 'Allow this action?'}</h2><span className="visually-hidden" aria-live="polite">{context.approvals.length} pending</span>{onStop && <button type="button" className="icon-button praxis-approval-stop" aria-label="Stop" title="Stop task" disabled={stopping} onClick={onStop}><Stop size={20} /></button>}</div>
       {(view.tool !== 'run_command' || view.agent) && <div className="praxis-approval-tool">{view.tool !== 'run_command' && <span>{view.tool}</span>}{view.agent && <span title={view.agent}>Subtask · {view.agent}</span>}</div>}
       <ApprovalDetails view={view} />
     </div>

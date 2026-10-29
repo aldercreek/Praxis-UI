@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUpRight, FileText, FolderOpen, GitCompareArrows, RotateCw, X } from 'lucide-react'
+import { ArrowUpRight, FileText, FolderOpen, FileDiff, RotateCw, X } from './icons'
 import type { FilePreview } from '../../shared/protocol'
 import { FileNavigationContext, MarkdownContent, type FileNavigation } from './MarkdownContent'
 import { fileName, isAbsoluteFileReference } from './fileLinks'
@@ -56,7 +56,7 @@ export function FilePanel({ target, workspace, turns, activeTurnId, onTarget, on
   }}>
     <div className="diff-header">
       {target.type === 'changes' ? <><span>File changes</span><DiffStats edits={edits} /></> : <>
-        <span>File contents</span>{turn?.files.length && turnId ? <button type="button" className="diff-return" onClick={() => onTarget({ type: 'changes', turnId })}><GitCompareArrows size={14} />Changes for this turn</button> : null}
+        <span>File contents</span>{turn?.files.length && turnId ? <button type="button" className="diff-return" onClick={() => onTarget({ type: 'changes', turnId })}><FileDiff size={14} />Changes for this turn</button> : null}
       </>}
       <button ref={closeButton} type="button" className="icon-button" aria-label="Close preview" title="Close preview · Esc" onClick={onClose}><X size={16} /></button>
     </div>
@@ -64,7 +64,7 @@ export function FilePanel({ target, workspace, turns, activeTurnId, onTarget, on
       {target.type === 'changes' ? <>
         <div ref={diffContent} className="diff-content" aria-label="Changed files">{turn?.files.length ? turn.files.map(file => <section className="diff-file" key={file.id} data-file-path={file.path} data-file-id={file.id}
           ref={node => { if (node) fileRegions.current.set(file.id, node); else fileRegions.current.delete(file.id) }}>
-          <div className="diff-filename"><FileText size={15} />
+          <div className="diff-filename"><FileText size={16} />
             {file.previewPath ? <button type="button" title="View current file" onClick={() => onTarget({ type: 'file', path: file.previewPath!, turnId })}>{fileName(file.path)}</button> : <span>{fileName(file.path)}</span>}
             <DiffStats edits={file.edits} />
           </div>
@@ -121,10 +121,10 @@ function FilePreviewContent({ path, workspace, navigation, onOpen, onReveal }: {
   const fileNavigation = useMemo(() => ({ ...navigation, baseFile: file?.path }), [navigation, file?.path])
   const size = file ? file.size < 1024 ? `${file.size} B` : file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB` : `${(file.size / 1024 / 1024).toFixed(1)} MB` : ''
   return <>
-    <div className="artifact-file-heading"><FileText size={15} /><span title={file?.path || path}>{file?.name || fileName(path)}</span><small>{size}</small><div className="artifact-file-actions">
-      <button type="button" className="icon-button" aria-label="Refresh file" title="Refresh file" disabled={loading} onClick={() => setRevision(value => value + 1)}><RotateCw size={14} /></button>
-      <button type="button" className="icon-button" aria-label="Show in folder" title="Show in folder" disabled={!file || loading} onClick={onReveal}><FolderOpen size={15} /></button>
-      <button type="button" className="icon-button" aria-label="Open in default app" title={file && !file.canOpen ? 'Preview or show in folder' : 'Open in default app'} disabled={!file?.canOpen || loading} onClick={onOpen}><ArrowUpRight size={15} /></button>
+    <div className="artifact-file-heading"><FileText size={16} /><span title={file?.path || path}>{file?.name || fileName(path)}</span><small>{size}</small><div className="artifact-file-actions">
+      <button type="button" className="icon-button" aria-label="Refresh file" title="Refresh file" disabled={loading} onClick={() => setRevision(value => value + 1)}><RotateCw size={16} /></button>
+      <button type="button" className="icon-button" aria-label="Show in folder" title="Show in folder" disabled={!file || loading} onClick={onReveal}><FolderOpen size={16} /></button>
+      <button type="button" className="icon-button" aria-label="Open in default app" title={file && !file.canOpen ? 'Preview or show in folder' : 'Open in default app'} disabled={!file?.canOpen || loading} onClick={onOpen}><ArrowUpRight size={16} /></button>
     </div></div>
     <div className="diff-path">{file?.path || path}</div>
     <div className={`file-preview ${!loading && !error && file ? `file-preview-${file.kind}` : ''}`}>
@@ -135,7 +135,7 @@ function FilePreviewContent({ path, workspace, navigation, onOpen, onReveal }: {
           : file.kind === 'text' ? <pre className="file-text" tabIndex={0}>{file.text || '(Empty file)'}</pre>
             : file.kind === 'image' ? <img className="file-image" src={file.dataUrl} alt={file.name} onError={() => setError('Invalid image format or damaged file.')} />
               : file.kind === 'pdf' && file.dataUrl ? <Suspense fallback={<p className="preview-notice">Loading PDF preview…</p>}><PdfPreview dataUrl={file.dataUrl} /></Suspense>
-                : <div className="preview-empty"><FileText size={28} /><p>{file.name}</p><span>{file.notice || (file.canOpen ? 'Open this file in the default app.' : 'Preview is unavailable for this format. You can show the file in its folder.')}</span><button type="button" className="button" onClick={file.canOpen ? onOpen : onReveal}>{file.canOpen ? 'Open in default app' : 'Show in folder'}</button></div>}
+                : <div className="preview-empty"><FileText size={24} /><p>{file.name}</p><span>{file.notice || (file.canOpen ? 'Open this file in the default app.' : 'Preview is unavailable for this format. You can show the file in its folder.')}</span><button type="button" className="button" onClick={file.canOpen ? onOpen : onReveal}>{file.canOpen ? 'Open in default app' : 'Show in folder'}</button></div>}
       </FileNavigationContext.Provider>
     </>}
     </div>

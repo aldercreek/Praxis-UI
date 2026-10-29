@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CircleAlert, Folder, GitCompareArrows, LoaderCircle, LockKeyhole, Maximize2, Minus, PanelLeft, Plus, Quote, Square, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CircleAlert, Folder, FileDiff, LoaderCircle, ShieldCheck, Minus, PanelLeft, Plus, Quote, Square, Stop, X } from './icons'
 import type { DesktopSettings, SessionSummary } from '../../shared/protocol'
 import { isBusy } from './state'
 import { baseName, errorMessage, usePraxis } from './usePraxis'
@@ -17,6 +17,7 @@ import { Sidebar } from './Sidebar'
 import { Transcript } from './Transcript'
 import { ApprovalProvider, ApprovalPrompt } from './ApprovalPrompt'
 import { ReadingAnchor } from './ReadingAnchor'
+import { MessageQueue } from './MessageQueue'
 import praxisWordmark from '../../../resources/brand/praxis-wordmark.svg'
 
 type Praxis = ReturnType<typeof usePraxis>
@@ -70,7 +71,7 @@ function SettingsDialog({ praxis, open, close }: { praxis: Praxis; open: boolean
         <label className="field"><span>Model</span><input value={draft.model} onChange={event => setDraft({ ...draft, model: event.target.value })} placeholder="Use Praxis environment settings" /></label>
         <label className="field"><span>API URL</span><input value={draft.baseUrl} onChange={event => setDraft({ ...draft, baseUrl: event.target.value })} placeholder="Use Praxis environment settings" type="url" /></label>
         <label className="field"><span>API Key {praxis.info?.settings.apiKeyConfigured && <span className="saved-key">Configured</span>}</span><input value={draft.apiKey} onChange={event => setDraft({ ...draft, apiKey: event.target.value })} placeholder={praxis.info?.settings.apiKeyConfigured ? 'Leave blank to keep the current key' : 'Leave blank to use the key from the environment'} type="password" autoComplete="new-password" /></label>
-        {error && <div className="field-error" role="alert"><CircleAlert size={15} /><span>{error}</span></div>}
+        {error && <div className="field-error" role="alert"><CircleAlert size={16} /><span>{error}</span></div>}
       </div>
       <div className="dialog-footer"><span>Runtime or model changes will reconnect Praxis.</span><button type="button" className="button" disabled={saving} onClick={close}>Cancel</button><button type="submit" className="button primary" disabled={saving || !praxis.api}>{saving ? 'Saving…' : 'Save settings'}</button></div>
     </form>
@@ -101,8 +102,12 @@ export default function App() {
     return disclosureSessions.current.get(key)!
   }, [praxis.activeId])
   const draftKey = praxis.activeId || `new:${praxis.workspace}`
+  const currentDraftKey = useRef(draftKey)
+  currentDraftKey.current = draftKey
   const draft = drafts[draftKey] || ''
   const active = praxis.active
+  const queuedInputs = active?.pendingInputs.filter(item => item.command_id !== active.sendingInputId
+    && !active.messages.some(message => message.id === item.command_id && message.status === 'sending')) || []
   const workspace = active?.summary?.workspace || praxis.workspace
   const quote = quotes[draftKey]
   const panelTarget = panel?.session === draftKey ? panel.target : undefined
@@ -254,8 +259,8 @@ export default function App() {
     <main className="main">
       <header className="titlebar">
         <div className="titlebar-leading">{sidebarCollapsed && <IconButton label="Expand sidebar" onClick={() => setSidebarCollapsed(false)}><PanelLeft size={16} /></IconButton>}<span className="titlebar-title" title={title}>{title}</span></div>
-        <div className="titlebar-actions">{currentChanges && <button type="button" className="changes-trigger" aria-label="View changes for this turn" aria-expanded={panelTarget?.type === 'changes' && panelTarget.turnId === currentChanges.turnId} onClick={() => openChanges(currentChanges.turnId)}><GitCompareArrows size={14} /><span>View changes</span><span>{currentChanges.files.length}</span></button>}{sidebarCollapsed && <IconButton label="New chat" onClick={praxis.newChat}><Plus size={16} /></IconButton>}
-        <div className="window-controls"><IconButton label="Minimize" onClick={() => praxis.api?.windowAction('minimize')}><Minus size={16} /></IconButton><IconButton label="Maximize or restore" onClick={() => praxis.api?.windowAction('maximize')}><Maximize2 size={14} /></IconButton><IconButton label="Close window" className="window-close" onClick={() => praxis.api?.windowAction('close')}><X size={16} /></IconButton></div>
+        <div className="titlebar-actions">{currentChanges && <button type="button" className="changes-trigger" aria-label="View changes for this turn" aria-expanded={panelTarget?.type === 'changes' && panelTarget.turnId === currentChanges.turnId} onClick={() => openChanges(currentChanges.turnId)}><FileDiff size={14} /><span>View changes</span><span>{currentChanges.files.length}</span></button>}{sidebarCollapsed && <IconButton label="New chat" onClick={praxis.newChat}><Plus size={16} /></IconButton>}
+        <div className="window-controls"><IconButton label="Minimize" onClick={() => praxis.api?.windowAction('minimize')}><Minus size={16} /></IconButton><IconButton label="Maximize or restore" onClick={() => praxis.api?.windowAction('maximize')}><Square size={14} /></IconButton><IconButton label="Close window" className="window-close" onClick={() => praxis.api?.windowAction('close')}><X size={16} /></IconButton></div>
         </div>
       </header>
 
@@ -291,17 +296,26 @@ export default function App() {
           {!loading && active && busy && !active.approvals.length && <ExecutionBar key={`${praxis.activeId}:${active.activeTurnId || 'current'}`} conversation={active} />}
           </FileNavigationContext.Provider>
           </DisclosureState.Provider>
-          {active && active.pendingInputs.length > 0 && <section className="paused-inputs"><div className="detail-label">Pending messages</div>{active.pendingInputs.map(item => <div key={item.command_id}><span>{item.content}</span><button onClick={() => void praxis.deleteInput(item.command_id)}>Remove</button></div>)}{!busy && <button onClick={() => void praxis.resumeInputs()}>Resume</button>}</section>}
         </div></ReadingAnchor>
       </div>
 
       <div className="composer-region">
         <div className="transcript-bottom-mask" data-visible={showScroll} aria-hidden="true" />
         {showScroll && <button type="button" className="scroll-bottom" aria-label="Scroll to latest message" title="Scroll to latest message" onClick={() => { const container = scrollRef.current; if (container) container.scrollTop = container.scrollHeight; stickToBottom.current = true; setShowScroll(false) }}><ArrowDown size={18} aria-hidden="true" /></button>}
-        {praxis.error && <div className="composer-error" role="alert"><CircleAlert size={14} /><span>{praxis.error}</span>{praxis.deleteFailure && <button type="button" className="button" onClick={() => void praxis.deleteSession(praxis.deleteFailure!)}>Retry deletion</button>}<IconButton label="Dismiss error" onClick={() => praxis.setError('')}><X size={13} /></IconButton></div>}
+        {praxis.error && <div className="composer-error" role="alert"><CircleAlert size={14} /><span>{praxis.error}</span>{praxis.deleteFailure && <button type="button" className="button" onClick={() => void praxis.deleteSession(praxis.deleteFailure!)}>Retry deletion</button>}<IconButton label="Dismiss error" onClick={() => praxis.setError('')}><X size={14} /></IconButton></div>}
         <ApprovalPrompt onStop={() => void praxis.stop()} stopping={stopping} />
+        {!active?.approvals.length && <MessageQueue key={draftKey} items={queuedInputs} paused={!busy} disabled={!ready || stopping}
+          onDelete={praxis.deleteInput} onSend={id => praxis.queueAction('send', { input_id: id })} onReorder={ids => praxis.queueAction('reorder', { input_ids: ids })}
+          onEdit={async id => {
+            const key = draftKey
+            const result = await praxis.queueAction('edit', { input_id: id })
+            if (result.content && !praxis.removedSessionIds.has(key)) {
+              setDrafts(previous => ({ ...previous, [key]: [result.content, previous[key]].filter(Boolean).join('\n\n') }))
+              requestAnimationFrame(() => { if (currentDraftKey.current === key) textareaRef.current?.focus() })
+            }
+          }} />}
         <form hidden={Boolean(active?.approvals.length)} className={`composer ${busy ? 'composer-running' : ''}`} onSubmit={event => { event.preventDefault(); void submit() }}>
-          {quote && <div className="quote-draft"><details><summary><Quote size={14} /><span><strong>Quoted response</strong><span>{quote.text}</span></span><ChevronRight size={12} /></summary><blockquote>{quote.text}</blockquote></details><IconButton label="Remove quote" disabled={praxis.sending} onClick={() => setQuotes(previous => ({ ...previous, [draftKey]: undefined }))}><X size={13} /></IconButton></div>}
+          {quote && <div className="quote-draft"><details><summary><Quote size={14} /><span><strong>Quoted response</strong><span>{quote.text}</span></span><ChevronRight size={12} /></summary><blockquote>{quote.text}</blockquote></details><IconButton label="Remove quote" disabled={praxis.sending} onClick={() => setQuotes(previous => ({ ...previous, [draftKey]: undefined }))}><X size={14} /></IconButton></div>}
           <textarea ref={textareaRef} aria-label={busy ? 'Follow-up message' : 'Send message'} value={draft} onChange={event => setDraft(event.target.value)} rows={2} disabled={loading} placeholder={empty ? 'What would you like to work on?' : stopping ? 'Stopping…' : busy ? 'Add details or adjust the task…' : 'Send a message, or type / for commands'} onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); void submit() }
           }} />
@@ -312,11 +326,11 @@ export default function App() {
                 <span className="model-name" title={praxis.info?.settings.model || 'Praxis environment settings'}>{praxis.info?.settings.model || 'Default model'}</span>
                 {praxis.info?.settings.bypassApprovals && <span className="approval-mode" title="Tools run without approval prompts">Bypass</span>}
               </> : <>
-                <IconButton label="Choose working directory" onClick={() => void praxis.chooseWorkspace()} disabled={!praxis.api}><Plus size={16} /></IconButton>
-                <button type="button" className="permission-button" disabled={busy || !praxis.info} title={busy ? 'Approval mode cannot be changed while a task is running' : 'Approval settings'} onClick={() => setSettingsOpen(true)}><LockKeyhole size={14} /><span>{praxis.info?.settings.bypassApprovals ? 'Auto-approve' : 'Ask for approval'}</span></button>
+                <IconButton label="Choose working directory" onClick={() => void praxis.chooseWorkspace()} disabled={!praxis.api}><Plus size={20} /></IconButton>
+                <button type="button" className="permission-button" disabled={busy || !praxis.info} title={busy ? 'Approval mode cannot be changed while a task is running' : 'Approval settings'} onClick={() => setSettingsOpen(true)}><ShieldCheck size={20} /><span>{praxis.info?.settings.bypassApprovals ? 'Auto-approve' : 'Ask for approval'}</span></button>
               </>}
             </div>
-            <div className="composer-actions">{!empty && <button type="button" className="model-button" aria-label="Choose model" title="Model and settings" onClick={() => setSettingsOpen(true)}><span>{active?.summary?.model || praxis.info?.settings.model || 'Default model'}</span><ChevronDown size={12} /></button>}{busy && draft.trim() && <button type="button" className="icon-button additional-stop" aria-label="Stop" onClick={() => void praxis.stop()} disabled={stopping} title="Stop task"><Square size={10} fill="currentColor" /></button>}{busy && !draft.trim() ? <button className="send-button" type="button" aria-label="Stop" title="Stop task" disabled={stopping} onClick={() => void praxis.stop()}><Square size={10} fill="currentColor" /></button> : <button className="send-button" type="submit" aria-label={busy ? 'Send follow-up' : 'Send message'} title="Send message · Enter" disabled={!draft.trim() || !canSubmit}>{praxis.sending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</button>}</div>
+            <div className="composer-actions">{!empty && <button type="button" className="model-button" aria-label="Choose model" title="Model and settings" onClick={() => setSettingsOpen(true)}><span>{active?.summary?.model || praxis.info?.settings.model || 'Default model'}</span><ChevronDown size={12} /></button>}{busy && draft.trim() && <button type="button" className="icon-button additional-stop" aria-label="Stop" onClick={() => void praxis.stop()} disabled={stopping} title="Stop task"><Stop size={20} /></button>}{busy && !draft.trim() ? <button className="send-button" type="button" aria-label="Stop" title="Stop task" disabled={stopping} onClick={() => void praxis.stop()}><Stop size={20} /></button> : <button className="send-button" type="submit" aria-label={busy ? 'Send follow-up' : 'Send message'} title="Send message · Enter" disabled={!draft.trim() || !canSubmit}>{praxis.sending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={20} />}</button>}</div>
           </div>
         </form>
         <div hidden={empty || Boolean(active?.approvals.length)} className="composer-caption"><span title={workspace}><Folder size={12} /><span>{baseName(workspace) || 'Workspace'}</span></span><span>Enter to send · Shift + Enter for a new line</span></div>

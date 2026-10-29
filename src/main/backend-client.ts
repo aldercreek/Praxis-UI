@@ -172,6 +172,9 @@ export class BackendClient extends EventEmitter {
       case 'input.submit': result = await this.http('POST', session + '/inputs', { ...params, command_id: params.command_id || randomUUID() }); break
       case 'input.resume': result = await this.http('POST', session + '/inputs/resume', { command_id: params.command_id || randomUUID() }); break
       case 'input.delete': result = await this.http('DELETE', session + '/inputs/' + encodeURIComponent(String(params.command_id))); break
+      case 'input.edit':
+      case 'input.reorder':
+      case 'input.send': result = await this.http('POST', session + '/queue/' + method.slice(6), { ...params, command_id: params.command_id || randomUUID() }); break
       case 'turn.cancel': result = await this.http('POST', session + '/turns/' + encodeURIComponent(String(params.turn_id)) + '/cancel'); break
       case 'approval.decide': result = await this.http('POST', '/api/approvals/' + encodeURIComponent(String(params.approval_id)) + '/decision', { approved: params.approved }); break
       default: throw new Error(`Unsupported operation: ${method}`)

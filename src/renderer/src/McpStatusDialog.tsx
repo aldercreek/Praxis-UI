@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CircleAlert, CircleDashed, CircleSlash, Clock3, LoaderCircle, Plug, RefreshCw, X } from 'lucide-react'
+import { CircleAlert, CircleDashed, CircleSlash, Clock3, LoaderCircle, Plug, RefreshCw, X } from './icons'
 import type { McpServerStatus, McpStatus } from '../../shared/protocol'
 import { errorMessage } from './usePraxis'
 import './mcpStatus.css'
@@ -10,11 +10,11 @@ const labels: Record<McpServerStatus['state'], string> = {
 }
 
 function StatusIcon({ state }: { state: McpServerStatus['state'] }) {
-  if (state === 'connecting') return <LoaderCircle className="mcp-spin" size={13} aria-hidden="true" />
-  if (state === 'retrying') return <Clock3 size={13} aria-hidden="true" />
-  if (state === 'queued') return <CircleDashed size={13} aria-hidden="true" />
-  if (state === 'disabled') return <CircleSlash size={13} aria-hidden="true" />
-  if (state === 'failed' || state === 'disconnected') return <CircleAlert size={13} aria-hidden="true" />
+  if (state === 'connecting') return <LoaderCircle className="mcp-spin" size={14} aria-hidden="true" />
+  if (state === 'retrying') return <Clock3 size={14} aria-hidden="true" />
+  if (state === 'queued') return <CircleDashed size={14} aria-hidden="true" />
+  if (state === 'disabled') return <CircleSlash size={14} aria-hidden="true" />
+  if (state === 'failed' || state === 'disconnected') return <CircleAlert size={14} aria-hidden="true" />
   return <i className="mcp-status-dot" aria-hidden="true" />
 }
 
@@ -48,7 +48,7 @@ export function McpStatusDialog({ close }: { close: () => void }) {
     <header className="mcp-header">
       <h2 id="mcp-title"><Plug size={16} aria-hidden="true" />MCP servers</h2>
       <div className="mcp-actions">
-        <button type="button" className="icon-button" aria-label="Refresh" title="Refresh" disabled={loading} onClick={() => void refresh()}><RefreshCw className={loading ? 'mcp-spin' : undefined} size={15} /></button>
+        <button type="button" className="icon-button" aria-label="Refresh" title="Refresh" disabled={loading} onClick={() => void refresh()}><RefreshCw className={loading ? 'mcp-spin' : undefined} size={16} /></button>
         <button type="button" className="icon-button" aria-label="Close" title="Close (Esc)" autoFocus onClick={close}><X size={16} /></button>
       </div>
     </header>

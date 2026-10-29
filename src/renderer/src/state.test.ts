@@ -5,6 +5,31 @@ import { applyEvent, applySnapshot, emptyConversation, type Conversation } from 
 const session: SessionSummary = { id: 'session-a', title: 'Task A', workspace: '/work', model: 'test', status: 'running', updated_at: '2026-10-20T00:00:00Z' }
 const event = (name: string, sequence: number, data: Record<string, unknown> = {}, agentId = 'main'): PraxisEvent => ({ event: name, session_id: session.id, turn_id: 'turn-a', agent_id: agentId, sequence, data })
 
+describe('agent collaboration presentation', () => {
+  const report = { sender_id: 'reviewer', recipient_id: 'parent', content: 'Review complete.' }
+  const envelope = '[Agent collaboration messages; source-labelled task data]\n' + JSON.stringify([report])
+
+  it('never treats source=agent as a user message despite its model-facing role', () => {
+    let current = applyEvent(emptyConversation(), event('ChildAgentMessage', 1, { content: report.content }, 'reviewer'))
+    current = applyEvent(current, event('MessagesReceived', 2, { source: 'agent', items: [{ role: 'user', content: envelope }] }))
+    expect(current.messages).toHaveLength(1)
+    expect(current.messages[0]).toMatchObject({ role: 'assistant', source: 'agent', agent_id: 'reviewer', content: report.content })
+    current = applyEvent(current, event('MessagesReceived', 3, { source: 'user', items: [{ role: 'user', content: envelope }] }))
+    expect(current.messages[1]).toMatchObject({ role: 'user', content: envelope })
+  })
+
+  it('restores legacy envelopes under the agent and does not duplicate an existing report', () => {
+    const message = { id: 'legacy', role: 'system' as const, content: envelope, turn_id: 'turn-a', agent_id: 'main' }
+    const snapshot: SessionSnapshot = { session, sequence: 2, approvals: [], messages: [message] }
+    const restored = applySnapshot(snapshot)
+    expect(restored.messages).toHaveLength(1)
+    expect(restored.messages[0]).toMatchObject({ role: 'assistant', agent_id: 'reviewer', source: 'agent', content: report.content })
+    expect(applySnapshot({ ...snapshot, messages: [...restored.messages, message] }).messages).toHaveLength(1)
+    expect(applySnapshot({ ...snapshot, messages: [{ ...message, role: 'user', source: 'user' }] }).messages[0].content).toBe(envelope)
+    expect(message.content).toBe(envelope)
+  })
+})
+
 describe('turn execution metadata', () => {
   afterEach(() => vi.restoreAllMocks())
 

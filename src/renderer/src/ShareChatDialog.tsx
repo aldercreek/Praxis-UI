@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { X } from './icons'
 import type { SessionSnapshot, SessionSummary, TranscriptMessage } from '../../shared/protocol'
 import { isChildAgent } from './state'
 import { errorMessage, usePraxis } from './usePraxis'

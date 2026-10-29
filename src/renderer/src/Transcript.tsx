@@ -1,5 +1,5 @@
 import { memo, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { Bot, ChevronRight, CircleAlert, GitBranch, GitCompareArrows, Quote, Square } from 'lucide-react'
+import { ChevronRight, CircleAlert, GitBranch, FileDiff, Quote, Square } from './icons'
 import { isChildAgent, type Conversation, type DisplayMessage, type PlanStep } from './state'
 import { presentTranscript, completedLabel, type TranscriptItem, type TranscriptTurn } from './transcriptPresentation'
 import { presentTool, type ToolGroup } from './toolPresentation'
@@ -11,6 +11,7 @@ import { readQuotedInput } from './quotedInput'
 import { CopyButton } from './CopyButton'
 import { ToolMessage } from './ToolMessage'
 import { processLayout } from './processLayout'
+import { assistantDisplayText } from './messagePresentation'
 import './timeline-layout.css'
 
 function ChildTool({ message }: { message: DisplayMessage }) {
@@ -40,7 +41,7 @@ function ChildTask({ turnId, agentId, messages, running }: { turnId: string; age
   const active = running && (!status || ['running', 'pending', 'queued'].includes(status.status || ''))
   const failed = status?.error || status?.status === 'failed' || status?.status === 'cancelled'
   return <Disclosure storageKey={`task:${turnId}:${agentId}`} className="child-task" data-agent-id={agentId}>
-    <summary>{!active && (failed ? <CircleAlert size={14} /> : <Bot size={14} />)}<span className={active ? 'text-sweep' : ''}>Task</span>
+    <summary>{!active && (failed ? <CircleAlert size={14} /> : <GitBranch size={14} />)}<span className={active ? 'text-sweep' : ''}>Task</span>
       <span className="task-caption">{status?.content || agentId}</span><span className="task-count">{tools.length} tool calls</span><ChevronRight className="disclosure-icon" size={12} /></summary>
     <div className="task-surface">{prompt && <p className="task-description">{prompt.content}</p>}
       {tools.length > 0 && <><div className="task-section-title">Tool executions</div><div className="task-tools">{tools.map(message => <ChildTool key={message.id} message={message} />)}</div></>}
@@ -130,7 +131,7 @@ function ProcessTurn({ turn, plan, changed, onChanges }: { turn: TranscriptTurn;
         </div>
       </div>
     })}
-    {changed && <button type="button" className="turn-changes-summary" onClick={() => onChanges(changed.turnId)}><GitCompareArrows size={14} /><span>{changed.files.length} {changed.files.length === 1 ? 'file' : 'files'} changed</span><ChevronRight size={12} /></button>}
+    {changed && <button type="button" className="turn-changes-summary" onClick={() => onChanges(changed.turnId)}><FileDiff size={14} /><span>{changed.files.length} {changed.files.length === 1 ? 'file' : 'files'} changed</span><ChevronRight size={12} /></button>}
   </section></FileChangesContext.Provider>
 }
 
@@ -144,11 +145,13 @@ const Message = memo(function Message({ message, showActions = false }: { messag
   if (message.role === 'tool') return <ToolMessage message={message} />
   if (message.role === 'system' && message.status === 'cancelled' && !message.agent_id) return <div className="turn-notice" role="status">{message.content}</div>
   if (message.role === 'system') return <div className={`system-message ${message.error ? 'error-text' : ''}`}>
-    {message.error ? <CircleAlert size={14} /> : message.agent_id ? <GitBranch size={14} /> : <Square size={11} />}
+    {message.error ? <CircleAlert size={14} /> : message.agent_id ? <GitBranch size={14} /> : <Square size={14} />}
     <span>{message.content}{message.agent_id && <span className="muted"> · {message.status || message.agent_id}</span>}</span>
   </div>
   const deliveryStatus = ['queued', 'sending', 'paused'].includes(message.status || '')
   const quoted = message.role === 'user' ? readQuotedInput(message.content) : undefined
+  const displayText = message.role === 'assistant' ? assistantDisplayText(message.content, message.status === 'streaming', message.source === 'agent') : message.content
+  if (message.role === 'assistant' && !displayText) return null
   return <article className={`message message-${message.role}`} aria-label={message.role === 'user' ? 'Your message' : 'Assistant response'} data-nav-message-id={message.role === 'user' && !isChildAgent(message.agent_id) ? message.id : undefined} tabIndex={message.role === 'user' ? -1 : undefined} data-quote-message-id={message.role === 'assistant' && !isChildAgent(message.agent_id) ? message.id : undefined}>
     {(isChildAgent(message.agent_id) || deliveryStatus) && <div className="message-label">
       {isChildAgent(message.agent_id) && <span>Subtask · {message.agent_id}</span>}
@@ -156,7 +159,7 @@ const Message = memo(function Message({ message, showActions = false }: { messag
       {message.status === 'sending' && <span className="queued-label">Sending</span>}
       {message.status === 'paused' && <span className="queued-label">Not received</span>}
     </div>}
-    {message.role === 'user' ? <div className="user-content">{quoted ? <><details className="sent-quote"><summary><Quote size={12} /><span>{quoted.quote}</span><ChevronRight size={12} /></summary><blockquote>{quoted.quote}</blockquote></details><div>{quoted.text}</div></> : message.content}</div> : <MarkdownContent content={message.content} allowRelativeFiles={!isChildAgent(message.agent_id)} streaming={message.status === 'streaming'} />}
-    {showActions && message.role === 'assistant' && message.status !== 'streaming' && <div className="message-actions"><CopyButton text={message.content} label="Copy response" /></div>}
+    {message.role === 'user' ? <div className="user-content">{quoted ? <><details className="sent-quote"><summary><Quote size={12} /><span>{quoted.quote}</span><ChevronRight size={12} /></summary><blockquote>{quoted.quote}</blockquote></details><div>{quoted.text}</div></> : message.content}</div> : <MarkdownContent content={displayText} allowRelativeFiles={!isChildAgent(message.agent_id)} streaming={message.status === 'streaming'} />}
+    {showActions && message.role === 'assistant' && message.status !== 'streaming' && <div className="message-actions"><CopyButton text={displayText} label="Copy response" /></div>}
   </article>
 })
