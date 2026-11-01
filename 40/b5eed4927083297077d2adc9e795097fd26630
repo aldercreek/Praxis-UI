@@ -1,0 +1,63 @@
+src/renderer/src/AgentDock.tsx
+  s_2f22f4270fb0d8::t_ed9f9b35400fde 97-104
+  s_2f22f4270fb0d8::t_7ed22774602b93 34,36,40,42-43,45,47-58,60-73
+src/renderer/src/toolPresentation.test.ts
+  s_2f22f4270fb0d8::t_c8f73f05f13333 120-134
+src/renderer/src/Transcript.tsx
+  s_2f22f4270fb0d8::t_aa4a6684bd51ad 1
+  s_2f22f4270fb0d8::t_13dba4f2dc0bf6 7
+  s_2f22f4270fb0d8::t_a827797e640f9f 59
+  s_2f22f4270fb0d8::t_d628cecb97cb9b 47,50
+src/renderer/src/ToolActivity.tsx
+  s_2f22f4270fb0d8::t_ec5f580548108c 18,22-24
+  s_2f22f4270fb0d8::t_692cd6c4b9b4e5 38
+  s_2f22f4270fb0d8::t_4acd650258add4 7-9,15,36-37,40,42,44,56
+  s_2f22f4270fb0d8::t_79dd4ae36070ae 43
+src/renderer/src/ToolMessage.tsx
+  s_2f22f4270fb0d8::t_d32c28556a6cbc 12-13,15
+  s_2f22f4270fb0d8::t_933e2af304d0d2 53
+src/renderer/src/agents.css
+  s_2f22f4270fb0d8::t_35414b716c5f30 20
+  s_2f22f4270fb0d8::t_6248e11561c914 4-15
+src/renderer/src/processLayout.ts
+  s_2f22f4270fb0d8::t_ace0f84c95b937 5,9-11,17-19,21
+tests/e2e/desktop.spec.ts
+  s_2f22f4270fb0d8::t_51938cb7e352ba 1265
+  s_2f22f4270fb0d8::t_61f010e1e86f18 445
+  s_2f22f4270fb0d8::t_3db32d2fb7ba5d 877-878
+  s_2f22f4270fb0d8::t_24f4bab8f40537 1045-1046
+  s_2f22f4270fb0d8::t_1994abe50eaeb4 929-934,938
+  s_2f22f4270fb0d8::t_501b6ddf1699cc 1263-1264
+  s_2f22f4270fb0d8::t_7d9e44d71cb2a1 1275
+  s_2f22f4270fb0d8::t_1649a5b26ba963 441-444,446-451
+  s_2f22f4270fb0d8::t_827488558436e7 866-867
+  s_2f22f4270fb0d8::t_3397e02ae67591 849,853,856
+  s_2f22f4270fb0d8::t_f8083a53cb8294 826,829-834,837-839,841
+  s_2f22f4270fb0d8::t_886bcf6fee03e4 900
+  s_2f22f4270fb0d8::t_1f18163bea7935 1055,1058
+src/renderer/src/toolPresentation.ts
+  s_2f22f4270fb0d8::t_3e586478320779 183
+  s_2f22f4270fb0d8::t_7f5ed53f793828 205-206,208
+src/renderer/src/processLayout.test.ts
+  s_2f22f4270fb0d8::t_09ab8b7d30452c 14,22,27,35,39,44,49,60,64-65
+src/renderer/src/timeline.css
+  s_2f22f4270fb0d8::t_a4d2c12337ce91 84-106
+  s_2f22f4270fb0d8::t_c6f3aa6e085c48 80
+  s_2f22f4270fb0d8::t_b4fead04503ba5 124-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.51-trip",
+  "base_commit_sha": "40b5eed4927083297077d2adc9e795097fd26630",
+  "prompts": {},
+  "sessions": {
+    "s_2f22f4270fb0d8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72925f3c-fc09-4c76-953f-661574fae4c7",
+        "model": "claude-opus-5.5"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    }
+  }
+}
