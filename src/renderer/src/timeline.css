@@ -77,9 +77,32 @@ details > summary:hover > .tool-head-main > .disclosure-icon, details > summary:
 .file-diff .diff-meta { color: #00000080; }
 .detail-label { display: flex; align-items: center; justify-content: space-between; font-size: 12px; line-height: 24px; color: var(--muted); }
 
-/* Only active text sweeps; icons and layout stay stationary. */
+/* Active text sweeps. Running action icons pulse in place; folds animate below. */
 .text-sweep { background-image: linear-gradient(110deg, var(--muted) 0%, var(--muted) 35%, var(--ink) 50%, var(--muted) 65%, var(--muted) 100%); background-size: 200% 100%; background-clip: text; -webkit-background-clip: text; color: transparent; -webkit-text-fill-color: transparent; animation: tool-sweep 2.2s linear infinite; }
 @keyframes tool-sweep { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* Fold motion: content grows from 0 to its height while fading and settling
+   6px downward; closing keeps it rendered until the height reaches 0. */
+.tool-message, .tool-group, .tool-arguments { interpolate-size: allow-keywords; }
+.tool-message::details-content, .tool-group::details-content, .tool-arguments::details-content {
+  block-size: 0; opacity: 0; overflow: clip; overflow-clip-margin: 4px;
+  transition: block-size 280ms cubic-bezier(.33, 1, .68, 1), opacity 180ms ease-out, content-visibility 280ms allow-discrete;
+}
+.tool-message[open]::details-content, .tool-group[open]::details-content, .tool-arguments[open]::details-content {
+  block-size: auto; opacity: 1; transition-duration: 280ms, 200ms, 280ms;
+}
+.tool-message > .tool-details, .tool-group > .tool-group-items { transition: translate 280ms cubic-bezier(.33, 1, .68, 1); }
+.tool-message:not([open]) > .tool-details, .tool-group:not([open]) > .tool-group-items { translate: 0 -6px; }
+.tool-direct::details-content { transition: none; }
+.tool-message > summary, .tool-group > summary, .process-summary, .tool-attention > button { transition: color 180ms; }
+.disclosure-icon { transition: transform 240ms cubic-bezier(.2, .8, .2, 1), opacity 180ms, color 180ms; }
+/* Hovering a live process row shows its title plainly. */
+.tool-streaming > summary:is(:hover, :focus-visible) > .text-sweep { animation: none; background: none; color: var(--ink); -webkit-text-fill-color: currentColor; }
+.tool-icon-loading { animation: tool-icon-pulse 1.2s ease-in-out infinite; }
+@keyframes tool-icon-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+/* Revealing a finished turn's process fades the folded entries in. */
+.transcript-turn[data-settled=true] .process-entry { transition: opacity 220ms ease-out, translate 280ms cubic-bezier(.33, 1, .68, 1); }
+@starting-style { .transcript-turn[data-settled=true] .process-entry:not([hidden]) { opacity: 0; translate: 0 -6px; } }
 
 .transcript-bottom-mask { position: absolute; left: 0; right: var(--scrollbar-width, 0px); height: 64px; top: -64px; background: linear-gradient(to bottom, #fff0, #fff); pointer-events: none; opacity: 0; transition: opacity 160ms ease-out; }
 .transcript-bottom-mask[data-visible="true"] { opacity: 1; }
@@ -98,6 +121,10 @@ details > summary:hover > .tool-head-main > .disclosure-icon, details > summary:
 @media (prefers-reduced-motion: reduce) {
   .text-sweep { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; }
   .disclosure-icon { transition: none; }
+  .tool-message::details-content, .tool-group::details-content, .tool-arguments::details-content,
+  .tool-message > .tool-details, .tool-group > .tool-group-items, .transcript-turn .process-entry { transition: none; }
+  .tool-message:not([open]) > .tool-details, .tool-group:not([open]) > .tool-group-items { translate: none; }
+  .tool-icon-loading { animation: none; }
 }
 
 .file-tooltip-anchor { display: inline-flex; min-width: 0; max-width: 100%; vertical-align: bottom; }

@@ -9,9 +9,10 @@ import { presentTool, toolFileLabel, type ToolIconKind } from './toolPresentatio
 import { FilePathTooltip } from './FilePathTooltip'
 import { fileDiffLines } from './fileDiff'
 
-export function ToolIcon({ kind }: { kind: ToolIconKind }) {
+// While an action runs its semantic icon stays in place and pulses gently.
+export function ToolIcon({ kind, loading = false }: { kind: ToolIconKind; loading?: boolean }) {
   const Icon = { read: FileText, folder: FolderOpen, code: FileCode2, search: Search, edit: Pencil, command: Terminal, image: Image, connection: Link2, plan: ListChecks, tool: Blocks }[kind]
-  return <Icon size={14} className="tool-icon" aria-hidden="true" />
+  return <Icon size={14} className={`tool-icon${loading ? ' tool-icon-loading' : ''}`} aria-hidden="true" />
 }
 
 export function ToolMessage({ message, onExpand }: { message: DisplayMessage; onExpand?: () => void }) {
@@ -49,7 +50,7 @@ export function ToolMessage({ message, onExpand }: { message: DisplayMessage; on
     className={`tool-message ${attention ? 'tool-error' : ''}`}>
     <summary aria-label={tool.summary} title={tool.summary}>
       <span className="tool-head-main">
-        <span className={attention ? 'tool-icon-error' : undefined}><ToolIcon kind={tool.icon} /></span>
+        <span className={attention ? 'tool-icon-error' : undefined}><ToolIcon kind={tool.icon} loading={running} /></span>
         {fileLabel ? <>
           <span className="tool-verb">{isEdit ? 'Edit' : 'Read'}</span>
           <FilePathTooltip path={path}>{previewPath

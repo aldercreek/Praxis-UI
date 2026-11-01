@@ -31,26 +31,46 @@ export function AgentDock({ agents, selected, onSelect }: { agents: AgentTask[];
   const ref = useRef<HTMLDivElement>(null)
   const menu = useRef<HTMLElement>(null)
   const trigger = useRef<HTMLButtonElement | null>(null)
+  const scroller = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
-  const [width, setWidth] = useState(0)
+  const [fade, setFade] = useState({ start: false, end: false })
   const position = useComposerPopover(open, ref, 'start', 480)
   const id = useId()
-  const count = Math.max(0, Math.min(agents.length, Math.floor((width - 138) / 174)))
-  const visible = agents.slice(0, count)
-  const chosen = agents.find(agent => agent.key === selected)
   const labels = dockTitles(agents)
-  if (chosen && count && !visible.includes(chosen)) visible[count - 1] = chosen
+  const layoutKey = agents.map(task => `${task.key}:${labels.get(task.key)}`).join('|')
   const close = (focus = false) => { setOpen(false); if (focus) trigger.current?.focus({ preventScroll: true }) }
+  // Every agent stays in one row that scrolls sideways. The edge with more
+  // agents fades, and a vertical wheel scrolls the row.
   useLayoutEffect(() => {
-    const node = ref.current
+    const node = scroller.current
     if (!node) return
-    const resize = () => setWidth(node.getBoundingClientRect().width)
-    resize()
-    const observer = new ResizeObserver(resize)
+    const update = () => {
+      const start = node.scrollLeft > 1
+      const end = node.scrollLeft + node.clientWidth < node.scrollWidth - 1
+      setFade(previous => previous.start === start && previous.end === end ? previous : { start, end })
+    }
+    const wheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || node.scrollWidth <= node.clientWidth) return
+      event.preventDefault()
+      node.scrollLeft += event.deltaY
+    }
+    update()
+    const observer = new ResizeObserver(update)
     observer.observe(node)
-    window.addEventListener('resize', resize)
-    return () => { observer.disconnect(); window.removeEventListener('resize', resize) }
-  }, [])
+    node.addEventListener('scroll', update, { passive: true })
+    node.addEventListener('wheel', wheel, { passive: false })
+    return () => { observer.disconnect(); node.removeEventListener('scroll', update); node.removeEventListener('wheel', wheel) }
+  }, [layoutKey])
+  // Keep the selected agent in view without scrolling the page.
+  useLayoutEffect(() => {
+    const node = scroller.current
+    const item = node?.querySelector<HTMLElement>('.agent-dock-item[aria-pressed="true"]')
+    if (!node || !item) return
+    const box = node.getBoundingClientRect()
+    const target = item.getBoundingClientRect()
+    if (target.left < box.left + 24) node.scrollLeft -= box.left + 24 - target.left
+    else if (target.right > box.right - 24) node.scrollLeft += target.right - (box.right - 24)
+  }, [selected, layoutKey])
   useEffect(() => {
     if (!open) return
     menu.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"], .agent-list-item')?.focus({ preventScroll: true })
@@ -74,13 +94,14 @@ export function AgentDock({ agents, selected, onSelect }: { agents: AgentTask[];
     <button type="button" className="agent-dock-heading" aria-label="View all agents" aria-expanded={open} aria-controls={id} onClick={event => toggle(event.currentTarget)}>
       <GitBranch size={16} /><span>Agents</span><ChevronDown size={12} />
     </button>
-    <div className="agent-dock-items">{visible.map(task => <Tooltip key={task.key} anchorClassName="agent-tooltip-anchor" className="agent-tooltip"
-      content={<><span className="agent-tooltip-title">{task.title}</span><span className="agent-tooltip-status"><AgentMark task={task} />{agentStatusLabel(task)}</span></>}>
-      <button type="button" className="agent-dock-item" data-agent-id={task.id}
-      aria-label={`${task.title} · ${agentStatusLabel(task)}`} aria-pressed={selected === task.key} onClick={() => onSelect(task.key)}>
-      <AgentMark task={task} /><span>{labels.get(task.key)}</span>
-    </button></Tooltip>)}</div>
-    {agents.length > count && <button type="button" className="agent-overflow" aria-label={`View ${agents.length - count} more agents`} aria-expanded={open} aria-controls={id} onClick={event => toggle(event.currentTarget)}>+{agents.length - count}</button>}
+    <div className="agent-dock-strip" data-fade-start={fade.start} data-fade-end={fade.end}>
+      <div className="agent-dock-items" ref={scroller}>{agents.map(task => <Tooltip key={task.key} anchorClassName="agent-tooltip-anchor" className="agent-tooltip"
+        content={<><span className="agent-tooltip-title">{task.title}</span><span className="agent-tooltip-status"><AgentMark task={task} />{agentStatusLabel(task)}</span></>}>
+        <button type="button" className="agent-dock-item" data-agent-id={task.id}
+        aria-label={`${task.title} · ${agentStatusLabel(task)}`} aria-pressed={selected === task.key} onClick={() => onSelect(task.key)}>
+        <AgentMark task={task} /><span>{labels.get(task.key)}</span>
+      </button></Tooltip>)}</div>
+    </div>
     {open && createPortal(<section ref={menu} id={id} className="agent-menu" aria-label="All agents" style={position} onBlur={event => {
       if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget) && !ref.current?.contains(event.relatedTarget)) close()
     }}>

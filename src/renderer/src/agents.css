@@ -1,15 +1,23 @@
 .agent-dock { display: flex; align-items: center; gap: 8px; height: 36px; flex: 1; min-width: 0; }
 .agent-dock button { border: 0; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
 .agent-dock-heading { display: flex; align-items: center; gap: 6px; flex: none; padding: 0 3px; height: 30px; border-radius: 5px; font-size: 13px !important; }
-.agent-dock-items { display: flex; align-items: stretch; min-width: 0; gap: 14px; height: 36px; }
-.agent-tooltip-anchor { display: flex; min-width: 0; max-width: 160px; }
-.agent-dock .agent-dock-item { display: flex; align-items: center; gap: 6px; position: relative; padding: 0 1px; min-width: 0; max-width: 160px; font-size: 14px; border-radius: 0; }
+/* One sideways-scrolling row; the side with more agents fades out. */
+.agent-dock-strip { position: relative; display: flex; flex: 0 1 auto; min-width: 0; height: 36px; }
+.agent-dock-strip::before, .agent-dock-strip::after { content: ''; position: absolute; z-index: 1; top: 0; bottom: 0; width: 24px; pointer-events: none; opacity: 0; transition: opacity 150ms; }
+.agent-dock-strip::before { left: 0; background: linear-gradient(to left, transparent, var(--surface)); }
+.agent-dock-strip::after { right: 0; background: linear-gradient(to right, transparent, var(--surface)); }
+.agent-dock-strip[data-fade-start=true]::before, .agent-dock-strip[data-fade-end=true]::after { opacity: 1; }
+.agent-dock-items { display: flex; align-items: stretch; min-width: 0; gap: 14px; height: 36px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
+.agent-dock-items::-webkit-scrollbar { display: none; }
+.agent-tooltip-anchor { display: flex; flex: none; min-width: 0; max-width: 240px; }
+.agent-dock .agent-dock-item { display: flex; align-items: center; gap: 6px; position: relative; padding: 0 1px; min-width: 0; max-width: 240px; font-size: 14px; border-radius: 0; }
+.agent-dock .agent-dock-item:focus-visible { outline: 1px solid var(--muted); outline-offset: -1px; }
+@media (prefers-reduced-motion: reduce) { .agent-dock-strip::before, .agent-dock-strip::after { transition: none; } }
 .agent-dock-item span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .agent-dock-item svg { flex: none; }
 .agent-dock .agent-dock-item[aria-pressed=true] { color: var(--ink); }
 .agent-dock-item[aria-pressed=true]::after { content: ''; position: absolute; inset: auto 0 0; height: 1px; background: #444; }
-.agent-dock .agent-overflow { padding: 3px 4px; font-size: 12px; border-radius: 5px; flex: none; }
-.agent-dock-heading:hover, .agent-overflow:hover { background: var(--hover); }
+.agent-dock-heading:hover { background: var(--hover); }
 .agent-dock .agent-dock-item:hover { color: var(--ink); }
 .agent-idle-dot { display: inline-block; width: 5px; height: 5px; margin: 0 4px; border-radius: 50%; background: #777; flex: none; }
 .agent-returned { color: #087b45; }

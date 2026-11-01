@@ -156,7 +156,9 @@ export function presentToolGroup(group: ToolGroup, isCurrent = false) {
   if (!entries.length) return undefined
   const attention = entries.filter(entry => ['Failed', 'Denied', 'Stopped', 'Unknown'].includes(entry.tool.status))
   const live = isCurrent || entries.some(entry => entry.tool.running || entry.tool.status === 'Queued')
-  return { ...activitySummary(entries), live,
+  // A collapsed live group names the call in progress, latest first.
+  const active = [...entries].reverse().find(entry => entry.tool.running) ?? [...entries].reverse().find(entry => entry.tool.status === 'Queued')
+  return { ...activitySummary(entries), live, active,
     single: entries.length === 1, hasAttention: attention.length > 0, attention }
 }
 
@@ -178,6 +180,7 @@ function standaloneTool(message: DisplayMessage): boolean {
 }
 
 const agent = (message: DisplayMessage) => isChildAgent(message.agent_id) ? message.agent_id : 'main'
+export const MAX_GROUP_CALLS = 20
 
 function hidePlanCall(message: DisplayMessage, planTurnIds?: ReadonlySet<string>): boolean {
   if (message.tool_name !== 'update_plan') return false
@@ -199,8 +202,10 @@ export function groupTranscript(messages: DisplayMessage[], planTurnIds?: Readon
       index += 1
       continue
     }
+    // At most MAX_GROUP_CALLS raw calls share a group. Counting raw calls keeps
+    // boundaries fixed when hidden plan metadata resolves.
     let end = index + 1
-    while (end < messages.length && messages[end].role === 'tool'
+    while (end < messages.length && end - index < MAX_GROUP_CALLS && messages[end].role === 'tool'
       && !standaloneTool(messages[end])
       && messages[end].turn_id === first.turn_id && messages[end].child_turn_id === first.child_turn_id
       && agent(messages[end]) === agent(first)) end += 1

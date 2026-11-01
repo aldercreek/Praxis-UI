@@ -117,6 +117,21 @@ describe('compact activity presentation', () => {
     expect(currentToolGroupId([...items, { id: 'next-stage', role: 'assistant', content: 'Next step' }], true)).toBeUndefined()
   })
 
+  it('names the latest running call while a group is live', () => {
+    const calls = [read('first'), read('second', { status: 'running', arguments: { path: 'second.ts' } }), read('third', { status: 'pending' })]
+    expect(presentToolGroup(groups(calls)[0], true)?.active?.message.id).toBe('second')
+    calls[1] = { ...calls[1], status: 'complete' }
+    expect(presentToolGroup(groups(calls)[0], true)?.active?.message.id).toBe('third')
+    expect(presentToolGroup(groups([read('a'), read('b')])[0])?.active).toBeUndefined()
+  })
+
+  it('starts a new group after 20 calls and keeps earlier group identities', () => {
+    const calls = Array.from({ length: 23 }, (_, index) => read(`call-${index}`))
+    const items = groupTranscript(calls) as ToolGroup[]
+    expect(items.map(item => [item.id, item.messages.length])).toEqual([['group:call-0', 20], ['group:call-20', 3]])
+    expect((groupTranscript(calls.slice(0, 21)) as ToolGroup[]).map(item => item.id)).toEqual(['group:call-0', 'group:call-20'])
+  })
+
   it('keeps incomplete and rejected actions out of success summaries', () => {
     for (const status of ['failed', 'denied', 'cancelled', 'pending', 'running', undefined]) {
       const presentation = presentToolGroup(groups([read('read'), read('command', { tool_name: 'run_command', status })])[0])!

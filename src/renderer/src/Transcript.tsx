@@ -1,10 +1,10 @@
-import { memo, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { ChevronRight, CircleAlert, GitBranch, FileDiff, Quote, Square } from './icons'
 import { isChildAgent, type Conversation, type DisplayMessage, type PlanStep } from './state'
 import { presentTranscript, completedLabel, type TranscriptTurn } from './transcriptPresentation'
 import { ToolActivity } from './ToolActivity'
 import { currentToolGroupId, presentTool, presentToolGroup } from './toolPresentation'
-import { DisclosureState, useDisclosure } from './Disclosure'
+import { useDisclosure } from './Disclosure'
 import { TurnPlan } from './ExecutionBar'
 import { FileChangesContext, MarkdownContent } from './MarkdownContent'
 import { type TurnChanges } from './changeSummary'
@@ -14,7 +14,6 @@ import { ToolMessage } from './ToolMessage'
 import { processLayout } from './processLayout'
 import { assistantDisplayText } from './messagePresentation'
 import { mainAgentMessages } from './agentPresentation'
-import './timeline-layout.css'
 
 function ElapsedTime({ startedAt }: { startedAt?: number }) {
   const [now, setNow] = useState(Date.now)
@@ -29,14 +28,6 @@ function ProcessTurn({ turn, plan, changed, onChanges }: { turn: TranscriptTurn;
   const trigger = useRef<HTMLButtonElement>(null)
   const [inspecting, setInspecting] = useDisclosure('process:' + turn.id + ':inspecting', false)
   const [open, setOpen] = useDisclosure('process:' + turn.id + ':complete', inspecting)
-  const savedDisclosures = useContext(DisclosureState)
-  const [middleChoices, setMiddleChoices] = useState<Record<string, boolean>>({})
-  const middleOpen = (id: string) => middleChoices[id] ?? savedDisclosures?.get(`process:${turn.id}:${id}`) ?? inspecting
-  const toggleMiddle = (id: string) => {
-    const next = !middleOpen(id)
-    savedDisclosures?.set(`process:${turn.id}:${id}`, next)
-    setMiddleChoices(previous => ({ ...previous, [id]: next }))
-  }
   const firstAssistant = turn.items.findIndex(item => item.role !== 'user')
   const attentionGroups = new Set(turn.items.filter(item => item.role === 'tool-group' ? presentToolGroup(item)?.hasAttention
     : item.role === 'tool' && ['Failed', 'Denied', 'Stopped', 'Unknown'].includes(presentTool(item).status)).map(item => item.id))
@@ -53,13 +44,10 @@ function ProcessTurn({ turn, plan, changed, onChanges }: { turn: TranscriptTurn;
     const hidden = [...(ref.current?.querySelectorAll<HTMLElement>('.process-entry[hidden]') || [])].find(entry => entry.contains(document.activeElement))
     if (hidden) document.getElementById(hidden.dataset.processController || completedControl)?.focus({ preventScroll: true })
   })
-  return <FileChangesContext.Provider value={{ changes: changed, openChanges: onChanges }}><section className="transcript-turn" ref={ref} data-turn-id={turn.id}>
+  return <FileChangesContext.Provider value={{ changes: changed, openChanges: onChanges }}><section className="transcript-turn" ref={ref} data-turn-id={turn.id} data-settled={!turn.running}>
     {turn.items.map((item, index) => {
       const process = layout.groupByItem.get(item.id)
-      const localGroup = process?.kind === 'middle' ? process : undefined
-      const localStart = localGroup?.items[0] === item.id
-      const controller = localGroup ? `${ids.get(localGroup.items[0])}-process` : completedControl
-      const showProcess = turn.running || (localGroup ? middleOpen(localGroup.id) : open)
+      const showProcess = turn.running || open
       return <div className="turn-entry" key={item.id}>
         {index === firstAssistant && <>
           {turn.running ? <ElapsedTime startedAt={turn.execution?.startedAt} /> : hasProcess && <button ref={trigger} id={completedControl} type="button" className="process-summary process-completed" aria-expanded={open}
@@ -68,12 +56,7 @@ function ProcessTurn({ turn, plan, changed, onChanges }: { turn: TranscriptTurn;
           </button>}
           {plan?.length ? <div id={planRegion} className="process-entry" data-process-controller={completedControl} hidden={!turn.running && !open}><TurnPlan turnId={turn.id} plan={plan} /></div> : null}
         </>}
-        {localGroup && localStart && <button key="process-control" id={controller} type="button" className="process-summary process-middle" data-process-group={localGroup.id}
-          hidden={turn.running} aria-expanded={middleOpen(localGroup.id)} aria-controls={localGroup.items.map(id => ids.get(id)).join(' ')}
-          onClick={event => { if (event.detail < 2) toggleMiddle(localGroup.id) }}>
-          <span>Process</span><ChevronRight size={12} className="disclosure-icon" aria-hidden="true" />
-        </button>}
-        <div key="content" id={ids.get(item.id)} data-scroll-anchor={item.id} data-process-controller={process ? controller : undefined}
+        <div key="content" id={ids.get(item.id)} data-scroll-anchor={item.id} data-process-controller={process ? completedControl : undefined}
           className={item.id === turn.finalMessageId ? 'turn-final' : process ? 'process-entry' : undefined}
           hidden={Boolean(process && !showProcess)}>
           {item.role === 'tool-group' ? <ToolActivity group={item} isCurrent={item.id === currentGroupId} onExpand={preserveProcess} />
