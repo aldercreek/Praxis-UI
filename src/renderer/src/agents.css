@@ -1,6 +1,6 @@
 .agent-dock { display: flex; align-items: center; gap: 8px; height: 36px; flex: 1; min-width: 0; }
 .agent-dock button { border: 0; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
-.agent-dock-heading { display: flex; align-items: center; gap: 6px; flex: none; padding: 0 3px; height: 30px; border-radius: 5px; font-size: 13px !important; }
+.agent-dock-heading { display: flex; align-items: center; gap: 6px; flex: none; padding: 0 3px; height: 30px; border-radius: var(--radius-sm); font-size: var(--text-sm) !important; }
 /* One sideways-scrolling row; the side with more agents fades out. */
 .agent-dock-strip { position: relative; display: flex; flex: 0 1 auto; min-width: 0; height: 36px; }
 .agent-dock-strip::before, .agent-dock-strip::after { content: ''; position: absolute; z-index: 1; top: 0; bottom: 0; width: 24px; pointer-events: none; opacity: 0; transition: opacity 150ms; }
@@ -11,7 +11,8 @@
 .agent-dock-items::-webkit-scrollbar { display: none; }
 .agent-tooltip-anchor { display: flex; flex: none; min-width: 0; max-width: 240px; }
 .agent-dock .agent-dock-item { display: flex; align-items: center; gap: 6px; position: relative; padding: 0 1px; min-width: 0; max-width: 240px; font-size: 14px; border-radius: 0; }
-.agent-dock .agent-dock-item:focus-visible { outline: 1px solid var(--muted); outline-offset: -1px; }
+.agent-dock .agent-dock-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.agent-dock-heading:active { background: var(--selected); }
 @media (prefers-reduced-motion: reduce) { .agent-dock-strip::before, .agent-dock-strip::after { transition: none; } }
 .agent-dock-item span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .agent-dock-item svg { flex: none; }
@@ -22,24 +23,26 @@
 .agent-idle-dot { display: inline-block; width: 5px; height: 5px; margin: 0 4px; border-radius: 50%; background: #777; flex: none; }
 .agent-returned { color: #087b45; }
 .agent-attention { color: #a24726; }
-.agent-menu { position: fixed; z-index: 35; background: var(--surface); padding: 6px; border: 1px solid var(--border); border-radius: 8px; overflow: auto; overscroll-behavior: contain; font: 400 14px/21px var(--font-ui); }
+.agent-menu { position: fixed; z-index: 35; background: var(--surface); padding: 6px; border: 0; border-radius: var(--radius-md); box-shadow: var(--shadow-overlay); overflow: auto; overscroll-behavior: contain; font: 400 14px/21px var(--font-ui); }
 .agent-menu-heading { display: flex; justify-content: space-between; align-items: center; padding: 3px 6px 7px 10px; color: var(--muted); font-size: 12px; }
 .agent-menu .icon-button { width: 26px; height: 26px; }
-.agent-list-item { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 9px 10px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; border-radius: 5px; cursor: pointer; }
+.agent-list-item { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 9px 10px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; border-radius: var(--radius-sm); cursor: pointer; }
 .agent-list-mark { display: flex; align-items: center; justify-content: center; flex: 0 0 16px; height: 21px; color: var(--muted); }
 .agent-list-copy { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
 .agent-list-title { white-space: normal; overflow-wrap: anywhere; }
 .agent-list-copy > small { color: var(--muted); font-size: 12px; line-height: 18px; }
-.agent-list-item:hover, .agent-list-item[aria-pressed=true] { background: var(--hover); }
-.agent-list-item:focus-visible { outline: 1px solid var(--muted); outline-offset: -1px; }
-.agent-tooltip { position: fixed; z-index: 60; max-width: min(340px, calc(100vw - 16px)); padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink); font: 400 13px/21px var(--font-ui); pointer-events: none; overflow-wrap: anywhere; }
+.agent-list-item:hover { background: var(--hover); }
+.agent-list-item[aria-pressed=true] { background: var(--selected); }
+.agent-list-item:active { background: var(--selected); }
+.agent-list-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.agent-tooltip { position: fixed; z-index: 60; max-width: min(340px, calc(100vw - 16px)); padding: 10px 12px; border: 0; border-radius: var(--radius-sm); background: var(--surface); box-shadow: var(--shadow-overlay); color: var(--ink); font: 400 13px/21px var(--font-ui); pointer-events: none; overflow-wrap: anywhere; }
 .agent-tooltip-title { display: block; }
 .agent-tooltip-status { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 18px; }
-.agent-panel { position: relative; display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; width: 520px; border-left: 1px solid var(--border); background: var(--surface); font: 400 14px/24px var(--font-ui); }
+.agent-panel { position: relative; display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; width: 520px; border-left: 1px solid var(--hairline); background: var(--surface); font: 400 14px/24px var(--font-ui); }
 .agent-panel-resizer { position: absolute; z-index: 3; top: 0; bottom: 0; left: -5px; width: 9px; cursor: col-resize; touch-action: none; }
 .agent-panel-resizer::after { content: ''; position: absolute; top: calc(50% - 18px); left: 3px; width: 3px; height: 36px; border-radius: 2px; background: var(--border-strong); }
 .agent-panel-resizer:hover::after, .agent-panel-resizer:focus-visible::after, .agent-panel-resizer[data-resizing]::after { background: var(--muted); }
-.agent-panel-resizer:focus-visible { outline: 1px solid var(--muted); outline-offset: -2px; }
+.agent-panel-resizer:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .resizing-agent-panel, .resizing-agent-panel * { cursor: col-resize !important; user-select: none !important; }
 .agent-panel-heading { display: flex; align-items: center; justify-content: space-between; height: 44px; flex: none; padding: 0 16px 0 24px; color: var(--muted); font-size: 12px; }
 .agent-panel-heading > span { display: flex; align-items: center; gap: 8px; }

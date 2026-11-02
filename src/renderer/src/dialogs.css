@@ -5,30 +5,38 @@
   width: min(440px, calc(100vw - 32px));
   max-height: calc(100dvh - 40px);
   padding: 24px;
-  border: 1px solid #e6e6e6;
-  border-radius: 24px;
-  background: #fff;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
   color: var(--ink);
   font: 400 14px/22px var(--font-ui);
   overflow: auto;
   scrollbar-width: thin;
-  box-shadow: 0 8px 48px -4px #0000001f, 0 6px 12px -4px #0000000f;
+  box-shadow: var(--shadow-dialog);
+  opacity: 0;
+  scale: .97;
+  transition: opacity var(--motion-base) var(--ease-out), scale var(--motion-base) var(--ease-out), overlay var(--motion-base) allow-discrete, display var(--motion-base) allow-discrete;
 }
-.praxis-dialog::backdrop { background: #00000040; }
+.praxis-dialog[open] { opacity: 1; scale: 1; }
+.praxis-dialog:not([open]) { pointer-events: none; }
+@starting-style { .praxis-dialog[open] { opacity: 0; scale: .97; } }
+.praxis-dialog::backdrop { background-color: #00000026; transition: background-color var(--motion-base) var(--ease-out), overlay var(--motion-base) allow-discrete, display var(--motion-base) allow-discrete; }
+.praxis-dialog:not([open])::backdrop { background-color: transparent; }
+@starting-style { .praxis-dialog[open]::backdrop { background-color: transparent; } }
 .praxis-dialog h2 { margin: 0; font: 600 16px/24px var(--font-ui); letter-spacing: 0; }
 .praxis-dialog p { margin: 0; }
 .praxis-dialog :is(.dialog-header, .delete-chat-header, .ps-share-header, .mcp-header) { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .praxis-dialog :is(.dialog-header, .delete-chat-header, .ps-share-header, .mcp-header) > :first-child { min-width: 0; }
-.praxis-dialog :is(.icon-button, .ps-share-header > button) { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: none; margin-top: -2px; padding: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--dialog-muted); }
-.praxis-dialog :is(.icon-button, .ps-share-header > button):hover:not(:disabled) { background: #f2f2f2; color: var(--ink); }
+.praxis-dialog :is(.icon-button, .ps-share-header > button) { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: none; margin-top: -2px; padding: 4px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--dialog-muted); }
+.praxis-dialog :is(.icon-button, .ps-share-header > button):hover:not(:disabled) { background: var(--hover); color: var(--ink); }
 .praxis-dialog :is(.dialog-footer, .delete-chat-actions, .ps-share-actions) { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
-.praxis-dialog :is(.button, .delete-chat-actions > button, .ps-share-actions > button) { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; min-width: 64px; padding: 5px 12px; border: 1px solid #e6e6e6; border-radius: 8px; background: #fff; color: var(--ink); font: 500 14px/20px var(--font-ui); white-space: nowrap; }
-.praxis-dialog :is(.button, .delete-chat-actions > button, .ps-share-actions > button):hover:not(:disabled) { background: #f5f5f5; }
-.praxis-dialog :is(.button.primary, .ps-share-actions > .ps-share-copy) { border-color: #202020; background: #202020; color: #fff; }
-.praxis-dialog :is(.button.primary, .ps-share-actions > .ps-share-copy):hover:not(:disabled) { border-color: #383838; background: #383838; }
-.praxis-dialog .delete-chat-actions > .delete-chat-confirm { border-color: #d93036; background: #d93036; color: #fff; }
-.praxis-dialog .delete-chat-actions > .delete-chat-confirm:hover:not(:disabled) { border-color: #c7272d; background: #c7272d; }
-.praxis-dialog :is(button, input):focus-visible { outline: 2px solid #777; outline-offset: 2px; }
+.praxis-dialog :is(.button, .delete-chat-actions > button, .ps-share-actions > button) { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; min-width: 64px; padding: 5px 12px; border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--fill); color: var(--ink); font: 500 14px/20px var(--font-ui); white-space: nowrap; }
+.praxis-dialog :is(.button, .delete-chat-actions > button, .ps-share-actions > button):hover:not(:disabled) { background: var(--fill-strong); }
+.praxis-dialog :is(.button.primary, .ps-share-actions > .ps-share-copy) { border-color: transparent; background: var(--ink); color: #fff; }
+.praxis-dialog :is(.button.primary, .ps-share-actions > .ps-share-copy):hover:not(:disabled) { border-color: transparent; background: color-mix(in srgb, var(--ink) 82%, #fff); }
+.praxis-dialog .delete-chat-actions > .delete-chat-confirm { border-color: transparent; background: var(--danger); color: #fff; }
+.praxis-dialog .delete-chat-actions > .delete-chat-confirm:hover:not(:disabled) { border-color: transparent; background: color-mix(in srgb, var(--danger) 88%, #000); }
+.praxis-dialog :is(button, input[type=checkbox]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 .delete-chat-dialog { width: min(440px, calc(100vw - 32px)); }
 .delete-chat-body { color: var(--dialog-secondary); overflow-wrap: anywhere; }
@@ -42,13 +50,13 @@
 .dialog-header p { margin-top: 6px; color: var(--dialog-muted); font-size: 13px; line-height: 20px; }
 .settings-fields { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 4px 24px 8px; }
 .settings-section-title { margin-bottom: 16px; font-size: 14px; line-height: 22px; font-weight: 600; }
-.settings-section-title.model-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid #ededed; }
+.settings-section-title.model-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--hairline); }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .field:last-of-type { margin-bottom: 0; }
 .field > span { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px; font-weight: 500; }
-.field input { width: 100%; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid #e6e6e6; border-radius: 8px; background: #fafafa; font: 400 14px/22px var(--font-ui); }
-.field input:hover { border-color: #ccc; }
-.field input:focus { border-color: #999; outline: 0; background: #fff; box-shadow: 0 0 0 2px #00000008; }
+.field input { width: 100%; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--fill); font: 400 14px/22px var(--font-ui); transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out); }
+.field input:hover { background: var(--fill-strong); }
+.field input:focus { border-color: var(--accent); outline: 0; background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
 .field input::placeholder { color: var(--dialog-muted); }
 .path-field { display: flex; align-items: center; gap: 8px; }
 .path-field input { flex: 1; }
@@ -56,21 +64,28 @@
 .field small, .setting-toggle small { color: var(--dialog-muted); font-size: 12px; line-height: 18px; font-weight: 400; }
 .setting-toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; cursor: pointer; }
 .setting-toggle > span { display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 20px; font-weight: 500; }
-.setting-toggle input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: #292929; cursor: pointer; }
+.setting-toggle input { appearance: none; position: relative; flex: none; width: 34px; height: 20px; margin: 0; border-radius: 10px; background: #0000001f; cursor: pointer; transition: background-color var(--motion-fast) var(--ease-out); }
+.setting-toggle input::before { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #00000033, 0 0 0 0.5px #0000000f; transition: translate var(--motion-base) var(--ease-out); }
+.setting-toggle input:checked { background: var(--accent); }
+.setting-toggle input:checked::before { translate: 14px 0; }
+.setting-toggle input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.setting-toggle input:disabled { opacity: .45; cursor: default; }
 .saved-key { color: var(--success); font-size: 12px; font-weight: 400; }
 .field-error { display: flex; align-items: flex-start; gap: 8px; margin-top: 16px; color: var(--error); font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
 .field-error svg { margin-top: 2px; }
-.settings-dialog .dialog-footer { flex: none; margin: 16px 0 0; padding: 16px 24px 24px; border-top: 1px solid #ededed; }
+.settings-dialog .dialog-footer { flex: none; margin: 16px 0 0; padding: 16px 24px 24px; border-top: 1px solid var(--hairline); }
 .dialog-footer > span { flex: 1; min-width: 160px; margin-right: auto; color: var(--dialog-muted); font-size: 12px; line-height: 18px; }
 
 .ps-share-dialog[open] { display: flex; flex-direction: column; }
 .ps-share-header { flex: none; }
 .ps-share-body { min-height: 0; overflow-y: auto; scrollbar-width: thin; overflow-wrap: anywhere; }
 .ps-share-description { color: var(--dialog-secondary); }
-.ps-share-dialog input[type="checkbox"] { flex: none; width: 16px; height: 16px; margin: 3px 0 0; accent-color: #292929; }
+.ps-share-dialog input[type="checkbox"] { flex: none; width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); }
 .ps-share-messages { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
-.ps-share-message { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid #ededed; border-radius: 10px; background: #fafafa; cursor: pointer; }
-.ps-share-message:hover { background: #f5f5f5; }
+.ps-share-message { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid transparent; border-radius: var(--radius-md); background: var(--fill); cursor: pointer; transition: background-color var(--motion-fast) var(--ease-out); }
+.ps-share-message:hover { background: var(--fill-strong); }
+.ps-share-message:has(input:checked) { background: var(--accent-soft); }
+.ps-share-message:has(input:checked):hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .ps-share-message > span { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 22px; }
 .ps-share-status { color: var(--dialog-muted); font-size: 13px; line-height: 20px; }
 .ps-share-error { display: flex; align-items: baseline; gap: 12px; padding-top: 12px; color: var(--error); font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
@@ -92,4 +107,7 @@
   .settings-dialog form { max-height: calc(100dvh - 26px); }
   .settings-dialog .dialog-header { padding-top: 20px; padding-bottom: 12px; }
   .settings-dialog .dialog-footer { margin-top: 8px; padding-top: 12px; padding-bottom: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .praxis-dialog, .praxis-dialog::backdrop, .setting-toggle input, .setting-toggle input::before { transition: none; }
 }

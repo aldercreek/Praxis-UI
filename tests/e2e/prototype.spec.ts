@@ -53,6 +53,8 @@ test('approved prototype: rendered typography, stable tools, file chips and cont
     const answer = '## 会话同步已修复\n\n终端和桌面现在会显示相同的会话，切换后的消息也会正确归属。\n\n- 新建会话后，其他客户端会自动更新列表。\n- 切换会话时，旧订阅返回的消息不会混入当前对话。\n\n[session_runtime.py](session_runtime.py) [useSession.ts](useSession.ts)\n\n14 项测试通过';
     await emit({ event: 'ModelRequestStarted', data: { request_number: 2 } }, { event: 'AssistantTextDelta', data: { request_number: 2, text: answer } }, { event: 'AssistantTextCompleted', data: { text: answer } }, { event: 'TurnSettled', data: { status: 'idle' } })
     await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+    await expect(page.locator('.process-summary').first()).toHaveAttribute('aria-expanded', 'true')
+    await page.locator('.process-summary').first().click()
     await expect(page.locator('.process-summary').first()).toHaveAttribute('aria-expanded', 'false')
     expect(await node!.evaluate(element => element.isConnected)).toBe(true)
     await expect(page.locator('.file-reference-row')).toHaveCount(2)

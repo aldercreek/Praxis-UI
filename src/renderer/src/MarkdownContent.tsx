@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { Archive, Check, Copy, FileCode2, FileImage, FileSpreadsheet, FileText, Presentation } from './icons'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeHighlight from 'rehype-highlight'
+import remend from 'remend'
 import { contentLink, fileName, isAbsoluteFileReference, safeContentUrl } from './fileLinks'
 import { containsImage, referenceKind, referenceName, referenceText, rehypeFileReferences } from './fileReferences'
 import { FilePathTooltip } from './FilePathTooltip'
@@ -75,24 +77,47 @@ function ContentImage({ src, alt }: { src?: string | Blob; alt?: string }) {
   </button>
 }
 
-function CodeBlock({ children }: { children?: React.ReactNode }) {
+function codeLanguage(node: { children?: unknown[] } | undefined): string {
+  const code = node?.children?.find((child): child is { tagName: string; properties?: { className?: unknown } } =>
+    typeof child === 'object' && child !== null && (child as { tagName?: string }).tagName === 'code')
+  const classes = Array.isArray(code?.properties?.className) ? code.properties.className.map(String) : []
+  return classes.find(name => name.startsWith('language-'))?.slice('language-'.length) || ''
+}
+
+function CodeBlock({ language, children }: { language: string; children?: React.ReactNode }) {
   const ref = useRef<HTMLPreElement>(null)
   const [copied, setCopied] = useState(false)
-  return <div className="code-block"><pre ref={ref}>{children}</pre><button className="code-copy" type="button" aria-label="Copy code" title="Copy code" onClick={() => {
-    void navigator.clipboard.writeText(ref.current?.innerText || '').then(() => setCopied(true)).catch(() => setCopied(false))
-  }}>{copied ? <Check size={14} /> : <Copy size={14} />}</button></div>
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 2000)
+    return () => clearTimeout(timer)
+  }, [copied])
+  return <div className="code-block">
+    <div className="code-block-header">
+      <span className="code-language">{language}</span>
+      <button className="code-copy" type="button" aria-label={copied ? 'Copied' : 'Copy code'} title="Copy code" onClick={() => {
+        void navigator.clipboard.writeText(ref.current?.innerText || '').then(() => setCopied(true)).catch(() => setCopied(false))
+      }}>{copied ? <Check size={14} /> : <Copy size={14} />}<span>{copied ? 'Copied' : 'Copy'}</span></button>
+    </div>
+    <pre ref={ref}>{children}</pre>
+  </div>
 }
 
 const components: Components = {
   a: ({ href, children, className, node }) => <ContentLink href={href} label={referenceText(node)} row={className === 'file-reference-row'} imageLink={containsImage(node)}>{children}</ContentLink>,
   img: ({ src, alt }) => <ContentImage src={src} alt={alt} />,
-  pre: ({ children }) => <CodeBlock>{children}</CodeBlock>
+  pre: ({ children, node }) => <CodeBlock language={codeLanguage(node)}>{children}</CodeBlock>,
+  table: ({ children }) => <div className="table-wrap"><table>{children}</table></div>
 }
 
-const fileReferencePlugins = [rehypeFileReferences]
+const highlight: [typeof rehypeHighlight, { detect: false }] = [rehypeHighlight, { detect: false }]
+const streamingPlugins = [highlight]
+const settledPlugins = [highlight, rehypeFileReferences]
+const remarkPlugins = [remarkGfm]
 
 export function MarkdownContent({ content, allowRelativeFiles = true, decorateFiles = true, streaming = false }: { content: string; allowRelativeFiles?: boolean; decorateFiles?: boolean; streaming?: boolean }) {
   const inherited = useContext(FileNavigationContext)
   const navigation = useMemo(() => inherited ? { ...inherited, decorateFiles, allowRelativeFiles: allowRelativeFiles && inherited.allowRelativeFiles !== false } : undefined, [inherited, allowRelativeFiles, decorateFiles])
-  return <FileNavigationContext.Provider value={navigation}><div className="markdown"><Markdown remarkPlugins={[remarkGfm]} rehypePlugins={decorateFiles && !streaming ? fileReferencePlugins : undefined} urlTransform={safeContentUrl} components={components}>{content}</Markdown></div></FileNavigationContext.Provider>
+  const text = useMemo(() => streaming ? remend(content, { linkMode: 'text-only' }) : content, [content, streaming])
+  return <FileNavigationContext.Provider value={navigation}><div className="markdown"><Markdown remarkPlugins={remarkPlugins} rehypePlugins={decorateFiles && !streaming ? settledPlugins : streamingPlugins} urlTransform={safeContentUrl} components={components}>{text}</Markdown></div></FileNavigationContext.Provider>
 }

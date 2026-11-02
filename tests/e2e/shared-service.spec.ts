@@ -221,7 +221,7 @@ test('composer queue supports editing, ordering, deleting, pausing and sending w
     const textStyle = getComputedStyle(element.querySelector('.queue-preview')!)
     return { background: style.backgroundColor, radius: style.borderTopLeftRadius, rowHeight: row.getBoundingClientRect().height, fontSize: textStyle.fontSize }
   })
-  expect(metrics).toEqual({ background: 'rgb(242, 242, 242)', radius: '24px', rowHeight: 48, fontSize: '14px' })
+  expect(metrics).toEqual({ background: 'rgb(242, 242, 242)', radius: '20px', rowHeight: 48, fontSize: '14px' })
   await rows.first().getByRole('button', { name: 'Edit message' }).hover()
   await screenshot(testInfo.outputPath('message-queue-hover.png'), queue)
   const size = await application!.evaluate(({ BrowserWindow }) => {
