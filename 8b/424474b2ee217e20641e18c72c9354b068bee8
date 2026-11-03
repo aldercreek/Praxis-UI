@@ -1,0 +1,87 @@
+src/renderer/src/Disclosure.tsx
+  s_dae66fa255873d::t_8eb9ca97e80eba 1,4-12,20,23,30,37
+src/renderer/src/App.tsx
+  s_dae66fa255873d::t_606fa71d4825e1 6,29,117-118,131,143-149,246-250,256-257,322,418,426
+  s_dae66fa255873d::t_7bca1a1d23915f 336
+  s_dae66fa255873d::t_9c6d93250bf9ce 40,46,68,80
+  s_dae66fa255873d::t_7d2947dbaaaf19 28,98,314
+src/main/settings.ts
+  s_dae66fa255873d::t_9e3032c084e302 13,45,54,74-77
+src/renderer/src/draftStore.test.ts
+  s_dae66fa255873d::t_f64704763861bd 1-63
+src/shared/protocol.ts
+  s_dae66fa255873d::t_9e3032c084e302 75,110-117,119-120
+src/renderer/src/FindBar.tsx
+  s_dae66fa255873d::t_7bca1a1d23915f 22,141,143
+  s_dae66fa255873d::t_8eb9ca97e80eba 1-2,4-21,23-30,32-62,64-69,73-88,92-94,96-129,132-140,142,144-161
+  s_dae66fa255873d::t_c601039822a462 3,31,63,70-72,89-91,95,130-131
+src/renderer/src/Transcript.tsx
+  s_dae66fa255873d::t_8eb9ca97e80eba 1,7,41
+src/renderer/src/dialogs.css
+  s_dae66fa255873d::t_9de38258dc9580 66
+src/renderer/src/usePraxis.test.ts
+  s_dae66fa255873d::t_b2fa7e0acbbf63 29-30
+  s_dae66fa255873d::t_ee0d299c36c8cc 102-112
+  s_dae66fa255873d::t_875e1231386a4c 1-28,31-101,113
+src/main/index.ts
+  s_dae66fa255873d::t_9e3032c084e302 1,9,19,111,143-144,209,230-231
+src/renderer/src/draftStore.ts
+  s_dae66fa255873d::t_7d2947dbaaaf19 1-63
+src/renderer/src/findInChat.ts
+  s_dae66fa255873d::t_8eb9ca97e80eba 1-60
+  s_dae66fa255873d::t_c601039822a462 61-71
+src/renderer/src/findBar.css
+  s_dae66fa255873d::t_8eb9ca97e80eba 1-7
+tests/e2e/desktop-productivity.spec.ts
+  s_dae66fa255873d::t_c601039822a462 2-3,33-35,140,142-143,147
+  s_dae66fa255873d::t_63de3413e99f28 40,115-116
+  s_dae66fa255873d::t_f6bc49020f1855 1,4-32,36-39,41-114,117-139,141,144-146,148-152,154-155,157-159,161,164-165
+  s_dae66fa255873d::t_9de38258dc9580 156
+  s_dae66fa255873d::t_7bca1a1d23915f 153,160,162-163
+tests/settings.test.ts
+  s_dae66fa255873d::t_f64704763861bd 17-27
+src/renderer/src/usePraxis.ts
+  s_dae66fa255873d::t_9c6d93250bf9ce 2,4,30-33,35,72-73,94,110-116,130-131,163,189-192,196,202-206,214
+  s_dae66fa255873d::t_ee0d299c36c8cc 193-195
+  s_dae66fa255873d::t_875e1231386a4c 34,106-107,188
+  s_dae66fa255873d::t_9de38258dc9580 42-43
+src/renderer/src/AgentPanel.tsx
+  s_dae66fa255873d::t_606fa71d4825e1 11,14,28-30
+src/renderer/src/notifications.test.ts
+  s_dae66fa255873d::t_f64704763861bd 1-53
+src/preload/index.ts
+  s_dae66fa255873d::t_9e3032c084e302 5-10
+src/main/notifications.ts
+  s_dae66fa255873d::t_9e3032c084e302 1-67
+src/renderer/src/notifications.ts
+  s_dae66fa255873d::t_9e3032c084e302 1-43
+src/renderer/src/findInChat.test.ts
+  s_dae66fa255873d::t_f64704763861bd 1-42
+vitest.config.ts
+  s_dae66fa255873d::t_f64704763861bd 3
+src/main/notifications.test.ts
+  s_dae66fa255873d::t_f64704763861bd 1-62
+src/renderer/src/useDrafts.ts
+  s_dae66fa255873d::t_7d2947dbaaaf19 1-43
+tests/e2e/desktop.spec.ts
+  s_dae66fa255873d::t_72ea20ba4baec9 334-335
+  s_dae66fa255873d::t_c601039822a462 258,281-282
+  s_dae66fa255873d::t_7bca1a1d23915f 311-333,336-353
+  s_dae66fa255873d::t_f6bc49020f1855 14,252-257,259-280,283-309
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.51-trip",
+  "base_commit_sha": "8b424474b2ee217e20641e18c72c9354b068bee8",
+  "prompts": {},
+  "sessions": {
+    "s_dae66fa255873d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17c9d-4a1b-7921-b2ed-8933dcf02831",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    }
+  }
+}
