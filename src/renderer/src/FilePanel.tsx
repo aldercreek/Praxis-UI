@@ -5,6 +5,7 @@ import { FileNavigationContext, MarkdownContent, type FileNavigation } from './M
 import { fileName, isAbsoluteFileReference } from './fileLinks'
 import type { ChangedFile, FileEdit, TurnChanges } from './changeSummary'
 import { fileDiffLines } from './fileDiff'
+import { ImageLightbox } from './ImageLightbox'
 import './filePanel.css'
 
 const PdfPreview = lazy(() => import('./PdfPreview'))
@@ -109,6 +110,8 @@ function FilePreviewContent({ path, workspace, navigation, onOpen, onReveal }: {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [revision, setRevision] = useState(0)
+  const [htmlView, setHtmlView] = useState<'preview' | 'source'>('preview')
+  const [expanded, setExpanded] = useState(false)
   useEffect(() => {
     let active = true
     setLoading(true)
@@ -127,17 +130,23 @@ function FilePreviewContent({ path, workspace, navigation, onOpen, onReveal }: {
       <button type="button" className="icon-button" aria-label="Open in default app" title={file && !file.canOpen ? 'Preview or show in folder' : 'Open in default app'} disabled={!file?.canOpen || loading} onClick={onOpen}><ArrowUpRight size={16} /></button>
     </div></div>
     <div className="diff-path">{file?.path || path}</div>
+    {file?.kind === 'html' && <div className="file-view-options" role="group" aria-label="HTML view">
+      <button type="button" aria-pressed={htmlView === 'preview'} onClick={() => setHtmlView('preview')}>Preview</button>
+      <button type="button" aria-pressed={htmlView === 'source'} onClick={() => setHtmlView('source')}>Source</button>
+    </div>}
     <div className={`file-preview ${!loading && !error && file ? `file-preview-${file.kind}` : ''}`}>
     {loading ? <div className="preview-loading" role="status" aria-label="Loading file"><i /><i /><i /></div> : error ? <div className="preview-empty"><FileText size={24} /><p>Unable to preview this file</p><span role="alert">{error}</span><button type="button" className="button" onClick={() => setRevision(value => value + 1)}>Retry</button></div> : file && <>
-      {file.truncated && <p className="preview-notice">Showing the first 1 MB. Open in the default app to view the full file.</p>}
+      {file.truncated && (file.kind !== 'html' || htmlView === 'source') && <p className="preview-notice">Showing the first 1 MB. Open in the default app to view the full file.</p>}
       <FileNavigationContext.Provider value={fileNavigation}>
         {file.kind === 'markdown' ? <MarkdownContent content={file.text || ''} decorateFiles={false} />
-          : file.kind === 'text' ? <pre className="file-text" tabIndex={0}>{file.text || '(Empty file)'}</pre>
-            : file.kind === 'image' ? <img className="file-image" src={file.dataUrl} alt={file.name} onError={() => setError('Invalid image format or damaged file.')} />
+          : file.kind === 'html' && htmlView === 'preview' ? <iframe key={revision} className="file-html" src={file.previewUrl} sandbox="allow-scripts" referrerPolicy="no-referrer" title={file.name} />
+            : file.kind === 'text' || file.kind === 'html' ? <pre className="file-text" tabIndex={0}>{file.text || '(Empty file)'}</pre>
+            : file.kind === 'image' ? <button type="button" className="file-image-button" aria-label={`View image: ${file.name}`} onClick={() => setExpanded(true)}><img className="file-image" src={file.dataUrl} alt={file.name} onError={() => setError('Invalid image format or damaged file.')} /></button>
               : file.kind === 'pdf' && file.dataUrl ? <Suspense fallback={<p className="preview-notice">Loading PDF preview…</p>}><PdfPreview dataUrl={file.dataUrl} /></Suspense>
                 : <div className="preview-empty"><FileText size={24} /><p>{file.name}</p><span>{file.notice || (file.canOpen ? 'Open this file in the default app.' : 'Preview is unavailable for this format. You can show the file in its folder.')}</span><button type="button" className="button" onClick={file.canOpen ? onOpen : onReveal}>{file.canOpen ? 'Open in default app' : 'Show in folder'}</button></div>}
       </FileNavigationContext.Provider>
     </>}
     </div>
+    {expanded && file?.kind === 'image' && file.dataUrl && <ImageLightbox src={file.dataUrl} name={file.name} onClose={() => setExpanded(false)} onOpenPanel={() => setExpanded(false)} />}
   </>
 }

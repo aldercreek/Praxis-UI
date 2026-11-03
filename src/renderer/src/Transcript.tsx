@@ -1,7 +1,7 @@
-import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, CircleAlert, GitBranch, FileDiff, Quote, Square } from './icons'
 import { isChildAgent, type Conversation, type DisplayMessage, type PlanStep } from './state'
-import { presentTranscript, completedLabel, type TranscriptTurn } from './transcriptPresentation'
+import { createTranscriptPresenter, completedLabel, type TranscriptTurn } from './transcriptPresentation'
 import { ToolActivity } from './ToolActivity'
 import { currentToolGroupId, presentTool, presentToolGroup } from './toolPresentation'
 import { useDisclosure } from './Disclosure'
@@ -22,10 +22,11 @@ function ElapsedTime({ startedAt }: { startedAt?: number }) {
   return <div className="turn-time">{seconds === undefined ? 'Processing' : `Processed ${seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`}`}</div>
 }
 
-function ProcessTurn({ turn, plan, changed, onChanges }: { turn: TranscriptTurn; plan?: PlanStep[]; changed?: TurnChanges; onChanges: (turnId: string, fileId?: string) => void }) {
+const ProcessTurn = memo(function ProcessTurn({ turn, plan, changed, onChanges }: { turn: TranscriptTurn; plan?: PlanStep[]; changed?: TurnChanges; onChanges: (turnId: string, fileId?: string) => void }) {
   const regionId = useId()
   const ref = useRef<HTMLElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
+  const fileChanges = useMemo(() => ({ changes: changed, openChanges: onChanges }), [changed, onChanges])
   const [inspecting, setInspecting] = useDisclosure('process:' + turn.id + ':inspecting', false)
   const [open, setOpen] = useDisclosure('process:' + turn.id + ':complete', inspecting)
   const firstAssistant = turn.items.findIndex(item => item.role !== 'user')
@@ -44,7 +45,7 @@ function ProcessTurn({ turn, plan, changed, onChanges }: { turn: TranscriptTurn;
     const hidden = [...(ref.current?.querySelectorAll<HTMLElement>('.process-entry[hidden]') || [])].find(entry => entry.contains(document.activeElement))
     if (hidden) document.getElementById(hidden.dataset.processController || completedControl)?.focus({ preventScroll: true })
   })
-  return <FileChangesContext.Provider value={{ changes: changed, openChanges: onChanges }}><section className="transcript-turn" ref={ref} data-turn-id={turn.id} data-settled={!turn.running}>
+  return <FileChangesContext.Provider value={fileChanges}><section className="transcript-turn" ref={ref} data-turn-id={turn.id} data-settled={!turn.running}>
     {turn.items.map((item, index) => {
       const process = layout.groupByItem.get(item.id)
       const showProcess = turn.running || open
@@ -66,10 +67,11 @@ function ProcessTurn({ turn, plan, changed, onChanges }: { turn: TranscriptTurn;
     })}
     {changed && <button type="button" className="turn-changes-summary" onClick={() => onChanges(changed.turnId)}><FileDiff size={14} /><span>{changed.files.length} {changed.files.length === 1 ? 'file' : 'files'} changed</span><ChevronRight size={12} /></button>}
   </section></FileChangesContext.Provider>
-}
+})
 
 export const Transcript = memo(function Transcript({ conversation, changes, onChanges }: { conversation: Conversation; changes: TurnChanges[]; onChanges: (turnId: string, fileId?: string) => void }) {
-  return presentTranscript({ ...conversation, messages: mainAgentMessages(conversation) }).map(turn => <ProcessTurn key={turn.items.find(item => item.role === 'user' && !isChildAgent(item.agent_id))?.id || turn.id} turn={turn}
+  const present = useMemo(createTranscriptPresenter, [])
+  return present({ ...conversation, messages: mainAgentMessages(conversation) }).map(turn => <ProcessTurn key={turn.items.find(item => item.role === 'user' && !isChildAgent(item.agent_id))?.id || turn.id} turn={turn}
     plan={!turn.running ? conversation.plansByTurn[turn.id] || (turn.id === conversation.activeTurnId ? conversation.plan : undefined) : undefined}
     changed={changes.find(change => change.turnId === turn.id)} onChanges={onChanges} />)
 })
@@ -91,8 +93,9 @@ export const Message = memo(function Message({ message, showActions = false, hid
       {message.status === 'queued' && <span className="queued-label">Queued</span>}
       {message.status === 'paused' && <span className="queued-label">Not received</span>}
     </div>}
-    {message.role === 'user' ? <div className="user-content">{quoted ? <><details className="sent-quote"><summary><Quote size={12} /><span>{quoted.quote}</span><ChevronRight size={12} /></summary><blockquote>{quoted.quote}</blockquote></details><div>{quoted.text}</div></> : message.content}</div> : <MarkdownContent content={displayText} allowRelativeFiles={!isChildAgent(message.agent_id)} streaming={message.status === 'streaming'} />}
+    {message.role === 'user' ? <div className="user-content">{quoted ? <><details className="sent-quote"><summary><Quote size={12} /><span>{quoted.quote}</span><ChevronRight size={12} /></summary><blockquote>{quoted.quote}</blockquote></details><div>{quoted.text}</div></> : message.content}</div> : <MarkdownContent content={displayText} allowRelativeFiles={!isChildAgent(message.agent_id)} streaming={message.status === 'streaming'} messageActions quoteMessageId={!isChildAgent(message.agent_id) ? message.id : undefined} />}
     {message.role === 'user' && message.status === 'not_sent' && <div className="message-delivery-note">Not sent · Edit below to retry</div>}
+    {message.role === 'user' && !isChildAgent(message.agent_id) && <div className="message-actions"><CopyButton text={quoted?.text ?? message.content} label="Copy message" /></div>}
     {showActions && message.role === 'assistant' && message.status !== 'streaming' && <div className="message-actions"><CopyButton text={displayText} label="Copy response" /></div>}
   </article>
 })

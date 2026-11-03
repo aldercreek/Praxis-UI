@@ -1,0 +1,9 @@
+.context-meter-anchor { display: inline-flex; }
+.context-meter { display: flex; align-items: center; justify-content: center; width: 28px; height: 30px; border-radius: var(--radius-sm); }
+.context-meter:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.context-meter:hover { background: var(--hover); }
+.context-tooltip { position: fixed; z-index: 60; display: flex; flex-direction: column; gap: 3px; max-width: min(340px, calc(100vw - 16px)); padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface); box-shadow: var(--shadow-overlay); color: var(--muted); font: 12px/18px var(--font-ui); pointer-events: none; }
+.context-tooltip strong { color: var(--ink); font-weight: 500; }
+.context-meter.is-compacting svg { animation: context-spin 1s linear infinite; }
+@keyframes context-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .context-meter.is-compacting svg { animation: none; } }

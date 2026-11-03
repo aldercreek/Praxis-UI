@@ -1,6 +1,7 @@
 import type { Approval, PraxisEvent, SessionSnapshot, SessionSummary, TranscriptMessage } from '../../shared/protocol'
 import { readAgentReports } from './messagePresentation'
 import { applyAgentEvent, type AgentExecution } from './agentPresentation'
+import { updateContext, type ContextUsage } from './contextUsage'
 
 export interface DisplayMessage extends TranscriptMessage {
   output?: string
@@ -36,6 +37,7 @@ export interface Conversation {
   sequence: number
   loaded: boolean
   activity: string
+  context?: ContextUsage
   pendingInputs: { command_id: string; content: string }[]
   sendingInputId?: string
   pausedInputs: string[]
@@ -56,7 +58,7 @@ const assistantKey = (event: PraxisEvent) => `assistant:${event.turn_id}:${agent
 const unfinishedToolStatuses = new Set(['running', 'pending', 'approval'])
 const isUnfinishedTool = (message: DisplayMessage) => message.role === 'tool' && (unfinishedToolStatuses.has(message.status || '') || message.status === 'denied' && message.tool_finished === false)
 const isCommand = (message: DisplayMessage) => message.tool_name === 'run_command' || message.tool_name === 'wait_command'
-const isBackgroundCommand = (message: DisplayMessage) => isCommand(message) && message.tool_finished === true && message.status === 'running'
+export const isBackgroundCommand = (message: DisplayMessage) => isCommand(message) && message.tool_finished === true && message.status === 'running'
 
 function readPlan(value: unknown): PlanStep[] {
   if (!Array.isArray(value)) return []
@@ -159,6 +161,7 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
   if (event.sequence && event.sequence <= current.sequence) return current
   const data = event.data
   const next: Conversation = { ...current, sequence: event.sequence ?? current.sequence,
+    context: updateContext(current.context, event),
     agentExecutions: applyAgentEvent(current.agentExecutions || {}, event) }
   const child = isChildAgent(event.agent_id)
   const toolBase: DisplayMessage = { id: toolKey(event), role: 'tool', content: '', call_id: textOf(data.call_id), tool_name: textOf(data.tool_name), turn_id: event.turn_id, agent_id: event.agent_id, child_turn_id: textOf(data.child_turn_id) || undefined, tool_finished: false }
@@ -394,6 +397,7 @@ export function applySnapshot(snapshot: SessionSnapshot, buffered: PraxisEvent[]
     pausedInputs: (snapshot.pending_inputs || []).map(item => item.content)
   }
   current.agentExecutions = (snapshot.view_events || []).reduce((agents, event) => applyAgentEvent(agents, event), {} as Record<string, AgentExecution>)
+  current.context = (snapshot.view_events || []).reduce<ContextUsage | undefined>(updateContext, undefined)
   for (const event of buffered) current = applyEvent(current, event)
   return current
 }

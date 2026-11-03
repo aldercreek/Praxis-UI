@@ -90,11 +90,12 @@ export interface FileReference {
 export interface FilePreview {
   path: string
   name: string
-  kind: 'text' | 'markdown' | 'image' | 'pdf' | 'unsupported'
+  kind: 'text' | 'markdown' | 'image' | 'pdf' | 'html' | 'unsupported'
   size: number
   canOpen: boolean
   text?: string
   dataUrl?: string
+  previewUrl?: string
   truncated?: boolean
   notice?: string
 }
@@ -117,6 +118,7 @@ export interface DesktopAPI {
   openExternal(url: string): Promise<void>
   openWorkspace(): Promise<void>
   previewFile(reference: FileReference): Promise<FilePreview>
+  listFiles(request: { workspace: string; query: string }): Promise<{ files: string[]; truncated: boolean }>
   openFile(reference: FileReference): Promise<FileActionResult>
   revealFile(reference: FileReference): Promise<FileActionResult>
   restart(): Promise<void>

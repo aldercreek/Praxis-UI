@@ -43,6 +43,7 @@ function fileLinksOnly(nodes: ElementContent[]): Element[] | undefined {
 
 function fileBlock(node: RootContent): Element[] | undefined {
   if (node.type !== 'element') return
+  if (Array.isArray(node.properties.className) && node.properties.className.some(name => String(name).startsWith('katex'))) return
   if (node.tagName === 'p') return fileLinksOnly(node.children)
   // Numbered steps, checklists and lists containing prose keep their semantics.
   if (node.tagName !== 'ul') return

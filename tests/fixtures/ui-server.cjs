@@ -220,7 +220,7 @@ function dispatch(request) {
     updated(s)
     return reply({ session: summary(s) })
   }
-  if (method === 'session.open') return reply({ session: summary(s), messages: s.messages, approvals: s.approvals, sequence: s.sequence })
+  if (method === 'session.open') return reply({ session: summary(s), messages: s.messages, approvals: s.approvals, sequence: s.sequence, view_events: journals.get(s.id) || [] })
   if (method === 'turn.start') {
     if (p.text.includes('测试延迟发送失败一次') && !s.delayedFailedSendOnce) {
       // The test releases this rejection through turn.input, so it can inspect

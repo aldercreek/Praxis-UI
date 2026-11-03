@@ -1,0 +1,9 @@
+.composer-suggestions { position: fixed; z-index: 40; overflow: auto; padding: 6px; border: 0; border-radius: var(--radius-md); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-overlay); font: 400 14px/22px var(--font-ui); }
+.composer-suggestion { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; }
+.composer-suggestion:hover, .composer-suggestion[aria-selected="true"] { background: var(--hover); }
+.composer-suggestion:active { background: var(--selected); }
+.suggestion-name, .suggestion-description { overflow: hidden; text-overflow: ellipsis; }
+.suggestion-name { flex-shrink: 0; max-width: 65%; }
+.suggestion-description { color: var(--muted); font-size: var(--text-xs); }
+.composer-suggestion mark { color: inherit; background: none; font-weight: 600; }
+.suggestion-empty { padding: 6px 8px; color: var(--muted); }

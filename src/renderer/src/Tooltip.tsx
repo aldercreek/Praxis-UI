@@ -23,9 +23,16 @@ export function Tooltip({ content, children, className, anchorClassName = 'file-
   }, [open])
   useLayoutEffect(() => {
     if (!open || !anchor.current || !tooltip.current) return
-    const rect = anchor.current.getBoundingClientRect()
-    const box = tooltip.current.getBoundingClientRect()
-    setPosition({ left: Math.max(8, Math.min(rect.left + (rect.width - box.width) / 2, window.innerWidth - box.width - 8)), top: Math.max(8, rect.top >= box.height + 16 ? rect.top - box.height - 8 : Math.min(rect.bottom + 8, window.innerHeight - box.height - 8)) })
+    const measure = () => {
+      if (!anchor.current || !tooltip.current) return
+      const rect = anchor.current.getBoundingClientRect()
+      const box = tooltip.current.getBoundingClientRect()
+      setPosition({ left: Math.max(8, Math.min(rect.left + (rect.width - box.width) / 2, window.innerWidth - box.width - 8)), top: Math.max(8, rect.top >= box.height + 16 ? rect.top - box.height - 8 : Math.min(rect.bottom + 8, window.innerHeight - box.height - 8)) })
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(tooltip.current)
+    return () => observer.disconnect()
   }, [open, content])
   return <span ref={anchor} className={anchorClassName} aria-describedby={open ? id : undefined} onPointerEnter={show} onPointerLeave={close} onFocus={show} onBlur={close} onClick={close}>
     {children}

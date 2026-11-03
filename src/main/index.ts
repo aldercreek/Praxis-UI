@@ -1,13 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
 import { existsSync, statSync } from 'node:fs'
 import { delimiter, join, resolve } from 'node:path'
 import { BackendClient } from './backend-client'
 import { createDiagnosticWriter } from './diagnostics'
 import { LocalFileService } from './local-files'
+import { constrainPreviewLinks } from './preview-navigation'
 import { SettingsStore } from './settings'
 import type { DesktopInfo, DesktopSettings, FileActionResult } from '../shared/protocol'
 
 const backend = new BackendClient()
+protocol.registerSchemesAsPrivileged([{ scheme: 'praxis-preview', privileges: { standard: true, secure: true, supportFetchAPI: false } }])
 const writeDiagnostic = createDiagnosticWriter(process.stderr)
 const testMode = !app.isPackaged && process.env.PRAXIS_UI_TEST_MODE === '1'
 let window: BrowserWindow | undefined
@@ -169,6 +171,7 @@ function registerIPC(): void {
     if (error) throw new Error(error)
   })
   ipcMain.handle('praxis:preview-file', (event, reference: unknown) => { trusted(event); return localFiles.preview(reference) })
+  ipcMain.handle('praxis:list-files', (event, request: unknown) => { trusted(event); return localFiles.listFiles(request) })
   ipcMain.handle('praxis:open-file', (event, reference: unknown) => { trusted(event); return localFiles.open(reference) })
   ipcMain.handle('praxis:reveal-file', (event, reference: unknown) => { trusted(event); return localFiles.reveal(reference) })
   ipcMain.handle('praxis:restart', event => {
@@ -201,6 +204,15 @@ function createWindow(): void {
   window.once('ready-to-show', () => { if (!testMode) window?.show() })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
+  window.webContents.on('will-frame-navigate', event => {
+    if (!event.isMainFrame && !event.url.startsWith('praxis-preview:')) event.preventDefault()
+  })
+  window.webContents.on('frame-created', (_event, { frame }) => {
+    if (!frame) return
+    frame.on('dom-ready', () => {
+      if (frame.url.startsWith('praxis-preview:')) void frame.executeJavaScript(`void (${constrainPreviewLinks.toString()})()`).catch(() => {})
+    })
+  })
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   window.on('closed', () => { window = undefined })
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) void window.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -219,6 +231,7 @@ if (hasLock) void app.whenReady().then(() => {
     simulateActions: testMode,
     onAction: testMode ? action => { fileActions.push(action) } : undefined
   })
+  protocol.handle('praxis-preview', request => localFiles.previewResource(request))
   backend.on('event', event => {
     localFiles.rememberBackendEvent(event)
     if (!window?.webContents.isDestroyed()) window?.webContents.send('praxis:event', event)

@@ -7,7 +7,7 @@ import { DisclosureState } from './Disclosure'
 import { ExecutionBar, ExecutionStatus } from './ExecutionBar'
 import { FileNavigationContext } from './MarkdownContent'
 import { FilePanel, type PanelTarget } from './FilePanel'
-import { collectTurnChanges } from './changeSummary'
+import { createChangeCollector } from './changeSummary'
 import { QuoteSelection, type TextQuote } from './QuoteSelection'
 import { formatQuotedInput } from './quotedInput'
 import { McpStatusDialog } from './McpStatusDialog'
@@ -21,6 +21,10 @@ import { MessageQueue } from './MessageQueue'
 import { AgentDock } from './AgentDock'
 import { AgentPanel } from './AgentPanel'
 import { collectAgents } from './agentPresentation'
+import { composerCommands, type ComposerCommand } from './composerCommands'
+import { ComposerSuggestions, useComposerSuggestions } from './ComposerSuggestions'
+import { ContextMeter } from './ContextMeter'
+import { QuoteContext } from './QuoteContext'
 import praxisWordmark from '../../../resources/brand/praxis-wordmark.svg'
 
 type Praxis = ReturnType<typeof usePraxis>
@@ -106,9 +110,11 @@ export default function App() {
   const [showScroll, setShowScroll] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const composerRef = useRef<HTMLFormElement>(null)
   const stickToBottom = useRef(true)
   const downwardIntentUntil = useRef(0)
   const lastScrollTop = useRef(0)
+  const pinnedRow = useRef<Element | null>(null)
   const previewTrigger = useRef<HTMLElement | null>(null)
   const disclosureSessions = useRef(new Map<string, Map<string, boolean>>())
   const disclosures = useMemo(() => {
@@ -129,7 +135,8 @@ export default function App() {
   const panelTarget = panel?.session === draftKey ? panel.target : undefined
   const overlayPanel = panelTarget?.type === 'agent' ? compactAgentPanel : compactPanel
   const agents = useMemo(() => active ? collectAgents(active) : [], [active])
-  const changes = useMemo(() => collectTurnChanges(active?.messages || [], workspace), [active?.messages, workspace])
+  const collectChanges = useMemo(createChangeCollector, [draftKey])
+  const changes = useMemo(() => collectChanges(active?.messages || [], workspace), [collectChanges, active?.messages, workspace])
   const currentChanges = changes.find(turn => turn.turnId === active?.activeTurnId)
   const openPanel = useCallback((target: PanelTarget | { type: 'agent'; key: string }) => {
     if (!panel) previewTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -158,10 +165,22 @@ export default function App() {
   const loading = praxis.loadingSession === praxis.activeId && Boolean(praxis.activeId)
   const empty = !active?.messages.length && !loading && !busy
   const ready = connected && !loading && praxis.configured !== false
-  const mcpCommand = draft.trim().toLowerCase() === '/mcp'
-  const deleteCommand = draft.trim().toLowerCase() === '/delete'
-  const canSubmit = mcpCommand || deleteCommand ? connected : ready && !praxis.sending && !stopping
+  const command = composerCommands.find(item => `/${item.name}` === draft.trim().toLowerCase())
+  const canSubmit = command ? ['new', 'settings'].includes(command.name) || connected : ready && !praxis.sending && !stopping
   const setDraft = (text: string) => setDrafts(previous => ({ ...previous, [draftKey]: text }))
+  const executeCommand = (selected: ComposerCommand) => {
+    setDraft('')
+    if (selected.name === 'new') praxis.newChat()
+    else if (selected.name === 'settings') setSettingsOpen(true)
+    else if (selected.name === 'mcp') setMcpOpen(true)
+    else if (selected.name === 'delete') {
+      if (active?.summary) setDeleteTarget(active.summary)
+      else praxis.setError('Open a chat to delete it.')
+    }
+  }
+  const suggestions = useComposerSuggestions({ text: draft, sessionKey: draftKey, workspace, hasSession: Boolean(active?.summary),
+    disabled: loading || Boolean(active?.approvals.length) || settingsOpen || mcpOpen || Boolean(deleteTarget), api: praxis.api,
+    textarea: textareaRef, onChange: setDraft, onCommand: executeCommand })
   const syncScrollState = useCallback(() => {
     const container = scrollRef.current
     if (!container) return
@@ -227,6 +246,7 @@ export default function App() {
 
   useLayoutEffect(() => {
     stickToBottom.current = true
+    pinnedRow.current = null
     setShowScroll(false)
     const container = scrollRef.current
     if (container) container.scrollTop = container.scrollHeight
@@ -258,22 +278,13 @@ export default function App() {
 
   const submit = async () => {
     if (!draft.trim() || !canSubmit) return
-    if (mcpCommand) {
-      setDraft('')
-      setMcpOpen(true)
-      return
-    }
-    if (deleteCommand) {
-      setDraft('')
-      if (active?.summary) setDeleteTarget(active.summary)
-      else praxis.setError('Open a chat to delete it.')
-      return
-    }
+    if (command) { suggestions.close(); executeCommand(command); return }
     const key = draftKey
     const content = draft
     const selectedQuote = quote
     setDrafts(previous => ({ ...previous, [key]: '' }))
     stickToBottom.current = true
+    pinnedRow.current = null
     textareaRef.current?.focus()
     const result = await praxis.send(formatQuotedInput(content, selectedQuote))
     if (!result.success && !praxis.removedSessionIds.has(result.sessionId || key)) {
@@ -289,7 +300,8 @@ export default function App() {
   const connectionProblem = !connected && praxis.connection.state !== 'connecting'
   const title = active?.summary?.title || 'New chat'
   const showNavigation = !loading && Boolean(active?.messages.some(message => message.role === 'user')) && !(panelTarget && overlayPanel)
-  return <ApprovalProvider approvals={active?.approvals || []} onRespond={praxis.approve}><div className={`app ${sidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}>
+  const quoteActions = useMemo(() => ({ addQuote, disabled: praxis.sending }), [addQuote, praxis.sending])
+  return <ApprovalProvider approvals={active?.approvals || []} onRespond={praxis.approve}><QuoteContext.Provider value={quoteActions}><div className={`app ${sidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}>
     <Sidebar praxis={praxis} collapsed={sidebarCollapsed} toggleSidebar={() => setSidebarCollapsed(value => !value)} openSettings={() => setSettingsOpen(true)} onDelete={setDeleteTarget} />
     <DeleteChatDialog session={deleteTarget ? praxis.conversations[deleteTarget.id]?.summary || Object.values(praxis.conversations).find(conversation => conversation.clientId === deleteTarget.id)?.summary || deleteTarget : null} close={() => setDeleteTarget(null)} confirm={id => { void praxis.deleteSession(id) }} />
     <main className="main">
@@ -309,23 +321,27 @@ export default function App() {
         if (container) {
           const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 24
           if (!nearBottom) stickToBottom.current = false
-          else if (performance.now() < downwardIntentUntil.current && container.scrollTop >= lastScrollTop.current) stickToBottom.current = true
+          else if (performance.now() < downwardIntentUntil.current && container.scrollTop >= lastScrollTop.current) { stickToBottom.current = true; pinnedRow.current = null }
           lastScrollTop.current = container.scrollTop
         }
         syncScrollState()
       }} onWheel={event => {
+        pinnedRow.current = null
         if (event.deltaY < 0) { stickToBottom.current = false; downwardIntentUntil.current = 0 }
         else if (event.deltaY > 0) downwardIntentUntil.current = performance.now() + 350
       }} onPointerDown={event => {
-        if (event.target === event.currentTarget) downwardIntentUntil.current = performance.now() + 2000
+        const control = event.target instanceof Element ? event.target.closest('summary, .process-summary, .tool-attention button') : null
+        if (control) { stickToBottom.current = false; downwardIntentUntil.current = 0; pinnedRow.current = control }
+        else if (event.target === event.currentTarget) { downwardIntentUntil.current = performance.now() + 2000; pinnedRow.current = null }
       }} onClickCapture={event => {
         if (event.target instanceof Element && event.target.closest('summary, .process-summary')) stickToBottom.current = false
       }} onKeyDownCapture={event => {
-        if (['End', 'PageDown', 'ArrowDown'].includes(event.key)) downwardIntentUntil.current = performance.now() + 350
-        if (['Home', 'PageUp', 'ArrowUp'].includes(event.key)) { stickToBottom.current = false; downwardIntentUntil.current = 0 }
-        if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof Element && event.target.closest('summary, .process-summary')) stickToBottom.current = false
+        if (['End', 'PageDown', 'ArrowDown'].includes(event.key)) { downwardIntentUntil.current = performance.now() + 350; pinnedRow.current = null }
+        if (['Home', 'PageUp', 'ArrowUp'].includes(event.key)) { stickToBottom.current = false; downwardIntentUntil.current = 0; pinnedRow.current = null }
+        const control = event.target instanceof Element ? event.target.closest('summary, .process-summary') : null
+        if ((event.key === 'Enter' || event.key === ' ') && control) { stickToBottom.current = false; downwardIntentUntil.current = 0; pinnedRow.current = control }
       }}>
-        <ReadingAnchor container={scrollRef} following={stickToBottom}><div className="transcript-content">
+        <ReadingAnchor container={scrollRef} following={stickToBottom} pinned={pinnedRow}><div className="transcript-content">
           <DisclosureState.Provider value={disclosures}>
           <FileNavigationContext.Provider value={fileNavigation}>
           {loading ? <div className="transcript-skeleton" aria-label="Loading chat history"><i /><i /><i /><i /></div> : empty ? <div className="empty-state"><h1><img className="welcome-wordmark" src={praxisWordmark} alt="Praxis" width={340} height={97} /></h1></div> : active && <Transcript key={draftKey} conversation={active} changes={changes} onChanges={openChanges} />}
@@ -337,7 +353,7 @@ export default function App() {
 
       <div className="composer-region">
         <div className="transcript-bottom-mask" data-visible={showScroll} aria-hidden="true" />
-        {showScroll && <button type="button" className="scroll-bottom" aria-label="Scroll to latest message" title="Scroll to latest message" onClick={() => { const container = scrollRef.current; if (container) container.scrollTop = container.scrollHeight; stickToBottom.current = true; setShowScroll(false) }}><ArrowDown size={18} aria-hidden="true" /></button>}
+        {showScroll && <button type="button" className="scroll-bottom" aria-label="Scroll to latest message" title="Scroll to latest message" onClick={() => { const container = scrollRef.current; if (container) container.scrollTop = container.scrollHeight; stickToBottom.current = true; pinnedRow.current = null; setShowScroll(false) }}><ArrowDown size={18} aria-hidden="true" /></button>}
         {praxis.error && <div className="composer-error" role="alert"><CircleAlert size={14} /><span>{praxis.error}</span>{praxis.deleteFailure && <button type="button" className="button" onClick={() => void praxis.deleteSession(praxis.deleteFailure!)}>Retry deletion</button>}<IconButton label="Dismiss error" onClick={() => praxis.setError('')}><X size={14} /></IconButton></div>}
         {!loading && active && (busy || pendingDelivery || agents.length > 0) && <ExecutionBar key={`execution-tools:${draftKey}`} plan={active.plan} leading={agents.length > 0 ? <AgentDock agents={agents} selected={panelTarget?.type === 'agent' ? panelTarget.key : undefined} onSelect={openAgent} /> : undefined} />}
         <ApprovalPrompt onStop={() => void praxis.stop()} stopping={stopping} />
@@ -351,9 +367,13 @@ export default function App() {
               requestAnimationFrame(() => { if (currentDraftKey.current === key) textareaRef.current?.focus() })
             }
           }} />}
-        <form hidden={Boolean(active?.approvals.length)} className={`composer ${busy ? 'composer-running' : ''}`} onSubmit={event => { event.preventDefault(); void submit() }}>
+        <ComposerSuggestions suggestions={suggestions} anchor={composerRef} />
+        <form ref={composerRef} hidden={Boolean(active?.approvals.length)} className={`composer ${busy ? 'composer-running' : ''}`} onSubmit={event => { event.preventDefault(); void submit() }}>
           {quote && <div className="quote-draft"><details><summary><Quote size={14} /><span><strong>Quoted response</strong><span>{quote.text}</span></span><ChevronRight size={12} /></summary><blockquote>{quote.text}</blockquote></details><IconButton label="Remove quote" disabled={praxis.sending} onClick={() => setQuotes(previous => ({ ...previous, [draftKey]: undefined }))}><X size={14} /></IconButton></div>}
-          <textarea ref={textareaRef} aria-label={busy ? 'Follow-up message' : 'Send message'} value={draft} onChange={event => setDraft(event.target.value)} rows={2} disabled={loading} placeholder={empty ? 'What would you like to work on?' : stopping ? 'Stopping…' : busy ? 'Add details or adjust the task…' : 'Send a message, or type / for commands'} onKeyDown={event => {
+          <textarea ref={textareaRef} aria-label={busy ? 'Follow-up message' : 'Send message'} aria-controls={suggestions.open ? suggestions.id : undefined} aria-expanded={suggestions.open} aria-autocomplete="list" aria-activedescendant={suggestions.activeId}
+            value={draft} onChange={event => { setDraft(event.target.value); suggestions.update(event.target.value, event.target.selectionStart) }} onSelect={event => { if (document.activeElement === event.currentTarget) suggestions.update(event.currentTarget.value, event.currentTarget.selectionStart) }} onBlur={suggestions.close}
+            rows={2} disabled={loading} placeholder={empty ? 'What would you like to work on?' : stopping ? 'Stopping…' : busy ? 'Add details or adjust the task…' : 'Send a message, or type / for commands'} onKeyDown={event => {
+            if (suggestions.onKeyDown(event)) return
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); void submit() }
           }} />
           <div className="composer-toolbar">
@@ -367,7 +387,7 @@ export default function App() {
                 <button type="button" className="permission-button" disabled={busy || !praxis.info} title={busy ? 'Approval mode cannot be changed while a task is running' : 'Approval settings'} onClick={() => setSettingsOpen(true)}><ShieldCheck size={20} /><span>{praxis.info?.settings.bypassApprovals ? 'Auto-approve' : 'Ask for approval'}</span></button>
               </>}
             </div>
-            <div className="composer-actions">{!empty && <button type="button" className="model-button" aria-label="Choose model" title="Model and settings" onClick={() => setSettingsOpen(true)}><span>{active?.summary?.model || praxis.info?.settings.model || 'Default model'}</span><ChevronDown size={12} /></button>}{busy && draft.trim() && <button type="button" className="icon-button additional-stop" aria-label="Stop" onClick={() => void praxis.stop()} disabled={stopping} title="Stop task"><Stop size={20} /></button>}{busy && !draft.trim() ? <button className="send-button" type="button" aria-label="Stop" title="Stop task" disabled={stopping} onClick={() => void praxis.stop()}><Stop size={20} /></button> : <button className="send-button" type="submit" aria-label={busy ? 'Send follow-up' : 'Send message'} title="Send · Enter. New line · Shift+Enter" disabled={!draft.trim() || !canSubmit}><ArrowUp size={20} /></button>}</div>
+            <div className="composer-actions">{!empty && <ContextMeter context={active?.context} activity={active?.activity || ''} />}{!empty && <button type="button" className="model-button" aria-label="Choose model" title="Model and settings" onClick={() => setSettingsOpen(true)}><span>{active?.summary?.model || praxis.info?.settings.model || 'Default model'}</span><ChevronDown size={12} /></button>}{busy && draft.trim() && <button type="button" className="icon-button additional-stop" aria-label="Stop" onClick={() => void praxis.stop()} disabled={stopping} title="Stop task"><Stop size={20} /></button>}{busy && !draft.trim() ? <button className="send-button" type="button" aria-label="Stop" title="Stop task" disabled={stopping} onClick={() => void praxis.stop()}><Stop size={20} /></button> : <button className="send-button" type="submit" aria-label={busy ? 'Send follow-up' : 'Send message'} title="Send · Enter. New line · Shift+Enter" disabled={!draft.trim() || !canSubmit}><ArrowUp size={20} /></button>}</div>
           </div>
         </form>
         <div hidden={empty || Boolean(active?.approvals.length)} className="composer-caption"><span title={workspace}><Folder size={12} /><span>{baseName(workspace) || 'Workspace'}</span></span></div>
@@ -384,5 +404,5 @@ export default function App() {
     {!settingsOpen && !mcpOpen && !praxis.sending && !(panelTarget && overlayPanel) && <QuoteSelection rootRef={scrollRef} sessionKey={draftKey} onQuote={addQuote} />}
     <SettingsDialog praxis={praxis} open={settingsOpen} close={() => setSettingsOpen(false)} />
     {mcpOpen && <McpStatusDialog close={() => { setMcpOpen(false); requestAnimationFrame(() => textareaRef.current?.focus()) }} />}
-  </div></ApprovalProvider>
+  </div></QuoteContext.Provider></ApprovalProvider>
 }

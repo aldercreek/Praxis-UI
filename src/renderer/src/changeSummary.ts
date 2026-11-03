@@ -29,12 +29,43 @@ function pathKey(path: string, workspace: string): string {
   return windows ? normalized.toLowerCase() : normalized
 }
 
+function hasFileChange(message: DisplayMessage): boolean {
+  return message.role === 'tool' && Boolean(message.turn_id && message.file_change?.path && message.file_change.diff) && message.tool_finished !== false
+}
+
+export function createChangeCollector() {
+  let root: string | undefined
+  let previous: TurnChanges[] = []
+  const cache = new Map<string, { messages: DisplayMessage[]; changes: TurnChanges }>()
+  return (messages: DisplayMessage[], workspace: string): TurnChanges[] => {
+    if (root !== workspace) { cache.clear(); root = workspace }
+    const turns = new Map<string, DisplayMessage[]>()
+    for (const message of messages) {
+      if (!hasFileChange(message)) continue
+      const turn = turns.get(message.turn_id!)
+      if (turn) turn.push(message)
+      else turns.set(message.turn_id!, [message])
+    }
+    for (const id of cache.keys()) if (!turns.has(id)) cache.delete(id)
+    const changes = [...turns].map(([id, messages]) => {
+      const cached = cache.get(id)
+      if (cached && cached.messages.length === messages.length && cached.messages.every((message, index) => message === messages[index])) return cached.changes
+      const changes = collectTurnChanges(messages, workspace)[0]
+      cache.set(id, { messages, changes })
+      return changes
+    })
+    if (changes.length === previous.length && changes.every((change, index) => change === previous[index])) return previous
+    previous = changes
+    return changes
+  }
+}
+
 export function collectTurnChanges(messages: DisplayMessage[], workspace: string): TurnChanges[] {
   const turns = new Map<string, Map<string, ChangedFile>>()
   const seen = new Set<string>()
   for (const message of messages) {
-    const change = message.file_change
-    if (message.role !== 'tool' || !message.turn_id || !change?.path || !change.diff || message.tool_finished === false || seen.has(message.id)) continue
+    const change = message.file_change!
+    if (!hasFileChange(message) || !message.turn_id || seen.has(message.id)) continue
     seen.add(message.id)
     let files = turns.get(message.turn_id)
     if (!files) { files = new Map(); turns.set(message.turn_id, files) }

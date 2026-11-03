@@ -1,0 +1,11 @@
+.praxis-dialog.image-lightbox { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: hidden; }
+.image-lightbox-toolbar { position: absolute; top: 12px; right: 16px; left: 16px; z-index: 1; width: fit-content; max-width: calc(100% - 32px); margin-left: auto; display: flex; align-items: center; gap: 4px; padding: 6px; border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-overlay); }
+.image-lightbox-toolbar > span { margin: 0 8px; max-width: 35vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px/20px var(--font-ui); }
+.image-lightbox-stage { position: absolute; inset: 64px 0 0; overflow: hidden; }
+.image-lightbox-stage img { position: absolute; left: 50%; top: 50%; max-width: none; max-height: none; user-select: none; touch-action: none; transition: width var(--motion-fast) var(--ease-out), height var(--motion-fast) var(--ease-out); }
+.image-lightbox-stage.is-dragging img { transition: none; }
+.file-image-button { display: block; border: 0; padding: 0; background: transparent; width: 100%; cursor: zoom-in; }
+.image-preview-tooltip { display: flex; flex-direction: column; gap: 6px; }
+.image-preview-tooltip img { display: block; max-width: 240px; max-height: 180px; width: auto; height: auto; object-fit: contain; align-self: center; border-radius: 4px; }
+.image-preview-skeleton { display: block; width: min(240px, calc(100vw - 32px)); height: 180px; border-radius: 4px; background: var(--fill); }
+@media (prefers-reduced-motion: reduce) { .image-lightbox-stage img { transition: none; } }

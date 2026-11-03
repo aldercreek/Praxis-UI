@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PraxisEvent, SessionSummary } from '../../shared/protocol'
 import { applyEvent, emptyConversation, type Conversation, type DisplayMessage } from './state'
-import { completedLabel, isProcessItem, presentTranscript, processLabel, visibleBodyIds } from './transcriptPresentation'
+import { completedLabel, createTranscriptPresenter, isProcessItem, presentTranscript, processLabel, visibleBodyIds } from './transcriptPresentation'
 
 const session: SessionSummary = {
   id: 'session-a', title: 'Task', workspace: '/work', model: 'test', status: 'idle', updated_at: '2026-10-25T00:00:00Z'
@@ -15,6 +15,29 @@ const conversation = (messages: DisplayMessage[], patch: Partial<Conversation> =
 })
 
 describe('turn transcript presentation', () => {
+  it('reuses unchanged turns while streaming updates only their own turn', () => {
+    const present = createTranscriptPresenter()
+    const old = [message('request', 'user'), tool('read'), message('answer', 'assistant')]
+    const current = conversation([...old, message('next', 'assistant', { turn_id: 'turn-b' })])
+    const first = present(current)
+    expect(present({ ...current, messages: [...current.messages] })[0]).toBe(first[0])
+    const updated = present({ ...current, messages: [...old, { ...current.messages[3], content: 'Next chunk' }] })
+    expect(updated[0]).toBe(first[0])
+    expect(updated[1]).not.toBe(first[1])
+    expect(updated[1].items[0]).toMatchObject({ content: 'Next chunk' })
+    expect(present(conversation(old, { turnsById: { 'turn-a': { status: 'failed' } } }))[0]).not.toBe(first[0])
+  })
+
+  it('invalidates cached plan grouping and releases removed turns', () => {
+    const present = createTranscriptPresenter()
+    const current = conversation([tool('plan', { tool_name: 'plan' }), message('answer', 'assistant')])
+    const first = present(current)[0]
+    const plan = { description: 'Inspect', status: 'completed' as const }
+    expect(present({ ...current, plansByTurn: { 'turn-a': [plan] } })[0]).not.toBe(first)
+    present(conversation([]))
+    expect(present(current)[0]).not.toBe(first)
+  })
+
   it.each([
     ['TurnCompleted', 'completed'], ['TurnFailed', 'failed'], ['TurnCancelled', 'cancelled']
   ])('keeps %s cleanup visible until settlement without changing its final result or duration', (terminalEvent, status) => {

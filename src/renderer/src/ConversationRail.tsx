@@ -63,8 +63,13 @@ export function ConversationRail({ sessionId, messages, scrollRef, onNavigate }:
     onNavigate()
     closePreview()
     target.focus({ preventScroll: true })
-    container.scrollTo({ top: container.scrollTop + target.getBoundingClientRect().top - container.getBoundingClientRect().top - 20,
-      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+    const reveal = () => {
+      if (!target.isConnected) return
+      container.scrollTo({ top: container.scrollTop + target.getBoundingClientRect().top - container.getBoundingClientRect().top - 20,
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+    }
+    reveal()
+    requestAnimationFrame(() => requestAnimationFrame(reveal))
   }
 
   useEffect(() => {
@@ -76,6 +81,12 @@ export function ConversationRail({ sessionId, messages, scrollRef, onNavigate }:
       const top = container.getBoundingClientRect().top + 72
       let anchor: HTMLElement | undefined = anchors[0]
       for (const candidate of anchors) {
+        const turn = candidate.closest('.transcript-turn')
+        if (turn) {
+          const bounds = turn.getBoundingClientRect()
+          if (bounds.top > top) break
+          if (bounds.bottom < top) { anchor = candidate; continue }
+        }
         if (candidate.getBoundingClientRect().top > top) break
         anchor = candidate
       }

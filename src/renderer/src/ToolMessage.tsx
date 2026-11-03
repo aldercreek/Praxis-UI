@@ -8,6 +8,9 @@ import { isChildAgent, textOf, toolStatus, type DisplayMessage } from './state'
 import { presentTool, toolFileLabel, type ToolIconKind } from './toolPresentation'
 import { FilePathTooltip } from './FilePathTooltip'
 import { fileDiffLines } from './fileDiff'
+import { CopyButton } from './CopyButton'
+import { stripAnsi } from './ansi'
+import { commandOutcome } from './commandOutput'
 
 // While an action runs its semantic icon stays in place and pulses gently.
 export function ToolIcon({ kind, loading = false }: { kind: ToolIconKind; loading?: boolean }) {
@@ -25,7 +28,10 @@ export function ToolMessage({ message, onExpand }: { message: DisplayMessage; on
   const awaiting = tool.status === 'Awaiting approval'
   const running = tool.running || tool.status === 'Queued'
   const attention = ['Failed', 'Denied', 'Stopped', 'Unknown'].includes(tool.status)
-  const resultText = message.content !== message.output ? message.content : ''
+  const resultText = message.content !== message.output ? isCommand ? stripAnsi(message.content) : message.content : ''
+  const outputText = isCommand ? stripAnsi(message.output || '') : message.output || ''
+  const copiedOutput = [outputText, resultText].filter(Boolean).join('\n')
+  const outcome = isCommand ? commandOutcome(message) : undefined
   const hasDiff = Boolean(message.file_change?.diff)
   const diffLines = hasDiff ? fileDiffLines(message.file_change!.diff) : []
   const path = textOf(message.file_change?.path ?? argument.relative_path ?? argument.path ?? argument.file_path)
@@ -40,7 +46,7 @@ export function ToolMessage({ message, onExpand }: { message: DisplayMessage; on
   }, [message.output])
   // Pending actions live in the bottom approval card until a decision arrives.
   if (awaiting) return null
-  const bodyText = isEdit && running ? textOf(argument.content ?? argument.new_string ?? '') : ''
+  const bodyText = isEdit && running ? textOf(argument.content ?? argument.new_string ?? argument.new_text ?? '') : ''
   const note = tool.status === 'Denied' ? 'Action rejected'
     : tool.status === 'Stopped' ? 'Action stopped'
     : running ? 'Waiting for output' : tool.status === 'Complete' ? 'Ran successfully' : 'No output'
@@ -60,6 +66,7 @@ export function ToolMessage({ message, onExpand }: { message: DisplayMessage; on
         </> : <span className={`tool-summary${tool.running ? ' text-sweep' : ''}`}>
           {attention ? tool.summary : tool.caption}
         </span>}
+        {isEdit && tool.running && !attention && bodyText && <span className="file-stats" aria-label="Lines being written"><span className="added">+{bodyText.split('\n').length}</span></span>}
         <ChevronRight className="disclosure-icon" size={12} aria-hidden="true" />
       </span>
     </summary>
@@ -67,10 +74,12 @@ export function ToolMessage({ message, onExpand }: { message: DisplayMessage; on
       {tool.displayName !== tool.name && <div className="tool-identity"><span>Tool</span><code>{tool.name}</code></div>}
       {showResult && <div className={isCommand ? 'tool-log' : 'tool-content'} ref={output} tabIndex={0} role="region" aria-label={isCommand ? 'Shell output' : 'Tool output'}
         onScroll={event => { const node = event.currentTarget; followOutput.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24 }}>
-        {isCommand && tool.command && <><div className="exec-language">{Array.isArray(argument.argv) ? 'command' : 'shell'}</div><pre className="command-line">{tool.command}</pre></>}
-        {message.output && <pre className="terminal-output">{message.output}</pre>}
+        {isCommand && <div className="exec-language"><span>{Array.isArray(argument.argv) ? 'command' : 'shell'}</span><span className="command-actions">{tool.command && <CopyButton text={tool.command} label="Copy command" size={14} className="code-copy" />}{copiedOutput && <CopyButton text={copiedOutput} label="Copy output" size={14} className="code-copy" />}</span></div>}
+        {isCommand && tool.command && <pre className="command-line">{tool.command}</pre>}
+        {outputText && <pre className="terminal-output">{outputText}</pre>}
         {resultText && <pre className={attention ? 'tool-result-prose' : undefined}>{resultText}</pre>}
-        {!message.output && !resultText && <div className={`tool-waiting ${tool.status === 'Complete' ? 'tool-success' : ''}`}>{tool.status === 'Complete' && <CheckCircle2 size={16} />}{note}</div>}
+        {!outputText && !resultText && <div className={`tool-waiting ${tool.status === 'Complete' ? 'tool-success' : ''}`}>{tool.status === 'Complete' && <CheckCircle2 size={16} />}{note}</div>}
+        {outcome && <div className={`command-outcome ${outcome.error ? 'error-text' : ''}`}>{outcome.label}</div>}
       </div>}
       {bodyText && <pre className="write-stream">{bodyText}</pre>}
       {hasDiff && <div className="tool-file-change" tabIndex={0} role="region" aria-label="File changes"><pre className="file-diff">{diffLines.map((line, index) => <span key={index}

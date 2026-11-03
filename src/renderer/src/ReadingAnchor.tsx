@@ -1,6 +1,6 @@
 import { Component, type ReactNode, type RefObject } from 'react'
 
-type Props = { container: RefObject<HTMLDivElement | null>; following: RefObject<boolean>; children: ReactNode }
+type Props = { container: RefObject<HTMLDivElement | null>; following: RefObject<boolean>; pinned?: RefObject<Element | null>; children: ReactNode }
 type Anchor = { element: Element; top: number; turn: Element | null }
 
 // Read before React updates the DOM, then preserve the visible text when a
@@ -10,11 +10,16 @@ export class ReadingAnchor extends Component<Props, Record<string, never>, Ancho
     const container = this.props.container.current
     if (!container || this.props.following.current) return null
     const viewport = container.getBoundingClientRect()
-    const element = [...container.querySelectorAll('.message-assistant .markdown p, .agent-instruction .markdown :is(p, li, h2), .tool-group > summary, .tool-message > summary, .message-user, .process-summary')]
-      .find(node => {
-        const rect = node.getBoundingClientRect()
-        return rect.height > 0 && rect.bottom > viewport.top + 4 && rect.top < viewport.bottom
-      })
+    const visible = (node: Element) => {
+      const rect = node.getBoundingClientRect()
+      return rect.height > 0 && rect.bottom > viewport.top + 4 && rect.top < viewport.bottom
+    }
+    const pinned = this.props.pinned?.current
+    const pinnedTurn = pinned?.closest('.transcript-turn')
+    const turns = [...container.querySelectorAll('.transcript-turn')]
+    const scopes = turns.length ? turns.filter(visible) : [container]
+    const element = pinned?.isConnected && container.contains(pinned) && (!pinnedTurn || visible(pinnedTurn)) && visible(pinned) ? pinned
+      : scopes.flatMap(scope => [...scope.querySelectorAll('.message-assistant .markdown p, .agent-instruction .markdown :is(p, li, h2), .tool-group > summary, .tool-message > summary, .message-user, .process-summary')]).find(visible)
     return element ? { element, top: element.getBoundingClientRect().top, turn: element.closest('.transcript-turn') } : null
   }
 

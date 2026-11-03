@@ -65,7 +65,14 @@ function turnOutcome(conversation: Conversation, id: string, messages: DisplayMe
   return 'completed'
 }
 
-export function presentTranscript(conversation: Conversation): TranscriptTurn[] {
+type TurnCache = Map<string, { messages: DisplayMessage[]; hasPlan: boolean; turn: TranscriptTurn }>
+
+export function createTranscriptPresenter() {
+  const cache: TurnCache = new Map()
+  return (conversation: Conversation) => presentTranscript(conversation, cache)
+}
+
+export function presentTranscript(conversation: Conversation, cache?: TurnCache): TranscriptTurn[] {
   const sections = new Map<string, DisplayMessage[]>()
   const startingTurn = conversation.messages.some(message => message.role === 'user' && !message.turn_id && message.status === 'sending')
   for (const message of conversation.messages) {
@@ -77,6 +84,7 @@ export function presentTranscript(conversation: Conversation): TranscriptTurn[] 
   }
   const planTurns = new Set(Object.keys(conversation.plansByTurn).filter(id => conversation.plansByTurn[id].length))
   const activeTurnId = conversation.summary?.active_turn?.id || conversation.activeTurnId
+  if (cache) for (const id of cache.keys()) if (!sections.has(id)) cache.delete(id)
   return [...sections].map(([id, messages]) => {
     const execution = conversation.turnsById[id]
     // A final answer confirms its text and duration before service cleanup ends.
@@ -94,11 +102,18 @@ export function presentTranscript(conversation: Conversation): TranscriptTurn[] 
       const lastTool = messages.reduce((last, message, index) => message.role === 'tool' && !isChildAgent(message.agent_id) ? index : last, -1)
       if (!interrupted && lastAnswer > lastTool) finalMessageId = messages[lastAnswer]?.id
     }
+    const hasPlan = planTurns.has(id)
+    const previous = cache?.get(id)
+    if (previous && previous.hasPlan === hasPlan && previous.turn.execution === execution && previous.turn.outcome === outcome
+      && previous.turn.running === running && previous.turn.finalMessageId === finalMessageId
+      && previous.messages.length === messages.length && previous.messages.every((message, index) => message === messages[index])) return previous.turn
     const items = groupTranscript(messages, planTurns)
     const process = items.filter(item => isProcessItem(item, finalMessageId))
     const hasProcess = process.some(item => item.role === 'tool-group' || isChildAgent(item.agent_id))
       || process.length > 1 || Boolean(finalMessageId && process.length)
-    return { id, items, execution, outcome, finalMessageId, running, hasProcess }
+    const turn = { id, items, execution, outcome, finalMessageId, running, hasProcess }
+    cache?.set(id, { messages, hasPlan, turn })
+    return turn
   })
 }
 

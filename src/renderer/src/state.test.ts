@@ -393,3 +393,57 @@ describe('conversation event reconciliation', () => {
     expect(next.messages[0]).toMatchObject({ status: 'cancelled', error: false, tool_finished: true })
   })
 })
+
+
+describe('main agent context usage', () => {
+  const status = { estimated_input_tokens: 54000, effective_input_limit_tokens: 128000, usage_percent: 42.1875, pressure: 'normal' }
+  const started = (sequence: number, agent = 'main') => event('ModelRequestStarted', sequence, { context_status: status }, agent)
+
+  it('tracks estimated context and the most recent request usage', () => {
+    let current = applyEvent(emptyConversation(), started(1))
+    expect(current.context).toEqual({ estimated: 54000, limit: 128000, percent: 42.1875, pressure: 'normal' })
+    current = applyEvent(current, event('ModelRequestCompleted', 2, { usage: { input_tokens: 52800, output_tokens: 200 } }))
+    current = applyEvent(current, started(3))
+    expect(current.context?.inputTokens).toBe(52800)
+  })
+
+  it('ignores child events and preserves values when optional data is absent', () => {
+    let current = applyEvent(emptyConversation(), started(1))
+    const context = current.context
+    current = applyEvent(current, event('ModelRequestStarted', 2, { context_status: { ...status, usage_percent: 99 } }, 'worker'))
+    current = applyEvent(current, event('ModelRequestCompleted', 3, { usage: { input_tokens: 999 } }, 'worker'))
+    current = applyEvent(current, event('ContextCompaction', 4, { stage: 'completed', after_tokens: 1 }, 'worker'))
+    current = applyEvent(current, event('ModelRequestStarted', 5, { context_status: null }))
+    current = applyEvent(current, event('ModelRequestCompleted', 6, { usage: null }))
+    expect(current.context).toBe(context)
+    expect(applyEvent(emptyConversation(), started(1, 'root')).context).toEqual(context)
+  })
+
+  it('updates the estimate and percent when compaction finishes', () => {
+    let current = applyEvent(emptyConversation(), started(1))
+    current = applyEvent(current, event('ContextCompaction', 2, { stage: 'started', before_tokens: 54000 }))
+    expect(current.activity).toBe('Compacting context')
+    expect(current.context?.estimated).toBe(54000)
+    current = applyEvent(current, event('ContextCompaction', 3, { stage: 'completed', after_tokens: 32000 }))
+    expect(current.context).toMatchObject({ estimated: 32000, percent: 25, pressure: 'normal' })
+    expect(current.activity).toBe('Thinking')
+    current = applyEvent(current, event('ContextCompaction', 4, { stage: 'completed', after_tokens: 0 }))
+    expect(current.context?.percent).toBe(0)
+  })
+
+  it('restores the latest primary usage and subsequent compaction from snapshots', () => {
+    const view_events = [started(1), event('ModelRequestCompleted', 2, { usage: { input_tokens: 52800 } }),
+      started(3, 'worker'), event('ModelRequestCompleted', 4, { usage: { input_tokens: 999 } }, 'worker'),
+      event('ContextCompaction', 5, { stage: 'completed', after_tokens: 16000 })]
+    const restored = applySnapshot({ session, messages: [], approvals: [], sequence: 5, view_events })
+    expect(restored.context).toEqual({ estimated: 16000, limit: 128000, percent: 12.5, pressure: 'normal', inputTokens: 52800 })
+    expect(emptyConversation().context).toBeUndefined()
+    expect(applySnapshot({ session: { ...session, id: 'another' }, messages: [], approvals: [], sequence: 0 }).context).toBeUndefined()
+  })
+
+  it('rejects invalid estimates without creating or corrupting a meter', () => {
+    for (const context_status of [{ ...status, usage_percent: NaN }, { ...status, effective_input_limit_tokens: 0 }, { ...status, estimated_input_tokens: -1 }]) {
+      expect(applyEvent(emptyConversation(), event('ModelRequestStarted', 1, { context_status })).context).toBeUndefined()
+    }
+  })
+})

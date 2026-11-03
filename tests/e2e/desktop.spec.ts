@@ -572,6 +572,15 @@ test('conversation navigation previews, jumps, scrolls independently and persist
   await expect(ticks.last()).toHaveAttribute('aria-current', 'location')
   expect((await rail.boundingBox())!.height).toBeLessThanOrEqual(320)
   expect(await list.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+  await transcript.evaluate(async element => {
+    let height = element.scrollHeight
+    let stable = 0
+    for (let index = 0; index < 8 && stable < 2; index += 1) {
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      stable = element.scrollHeight === height ? stable + 1 : 0
+      height = element.scrollHeight
+    }
+  })
   const readingPosition = await transcript.evaluate(element => element.scrollTop)
   await list.hover()
   await page.mouse.wheel(0, -2000)
@@ -853,7 +862,8 @@ test('execution lifecycle shows actions once, folds history after prose and keep
   await expect(header).toHaveText(/^Searching BizStrategy/)
   await emitEvents(sessionId, { event: 'ToolFinished', data: { call_id: 'search', tool_name: 'search_text', result: { success: true, output: 'src/services/BizStrategy.ts:12' } } })
   await expect(footer).toHaveText('Working')
-  await expect(header).toHaveText('Explored project files and ran a command')
+  await expect(header).toHaveText('Searched BizStrategy (src/services)')
+  await expect(header.locator('.tool-icon')).toHaveClass(/tool-icon-loading/)
   await page.screenshot({ path: test.info().outputPath('waiting-after-tools.png') })
   await emitEvents(sessionId, { event: 'ModelRequestStarted', data: { request_number: 2 } },
     { event: 'AssistantTextDelta', data: { request_number: 2, text: 'The build passed. I found the matching strategy implementation.' } })
@@ -1055,7 +1065,8 @@ test('tool activity separates single calls, current actions and completed summar
   await expect(header).toHaveText('Running first-command')
   await expect(page.locator('.execution-status')).toHaveCount(0)
   await emitEvents(sessionId, { event: 'ToolFinished', data: { call_id: 'first-command', tool_name: 'run_command', result: { success: true, output: 'Done' } } })
-  await expect(header).toHaveText('Read a file and ran commands')
+  await expect(header).toHaveText('Ran first-command')
+  await expect(header.locator('.tool-icon')).toHaveClass(/tool-icon-loading/)
   await expect(page.locator('.execution-status')).toHaveText('Working')
   await emitEvents(sessionId, { event: 'ModelRequestCompleted', data: { request_number: 2, output_text: 'Next stage.' } }, ...startedTool('next', 'src/next.ts'))
   await expect(header).toHaveText('Read a file and ran commands')
@@ -1080,7 +1091,10 @@ test('tool groups stay aligned without indentation and retain reading position w
   await emitEvents(sessionId, ...startedTool('api', 'api/pom.xml'), finishedTool('api'),
     ...startedTool('cache', 'cache/pom.xml'), finishedTool('cache'), ...startedTool('source', 'src/App.tsx'))
   const group = page.locator('.tool-group')
-  await expect(group.locator(':scope > summary')).not.toBeVisible()
+  const header = group.locator(':scope > summary')
+  await expect(header).toHaveText('Reading src/App.tsx')
+  await expect(group).toHaveJSProperty('open', false)
+  await header.press('Enter')
   await expect(toolMessage('source').locator(':scope > summary')).toContainText('Reading src/App.tsx')
   await expect(page.locator('.tool-running-dot')).toHaveCount(0)
   await expect(group.locator('.tool-group-items')).toBeVisible()

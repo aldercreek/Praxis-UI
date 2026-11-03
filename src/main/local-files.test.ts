@@ -1,9 +1,10 @@
+import { execFileSync } from 'node:child_process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { FILE_PREVIEW_LIMITS, LocalFileService } from './local-files'
+import { FILE_PREVIEW_LIMITS, LocalFileService, PREVIEW_CSP } from './local-files'
 import type { FileActionResult, FileReference } from '../shared/protocol'
 
 let directory: string
@@ -28,6 +29,45 @@ beforeEach(() => {
   service = new LocalFileService({ getWorkspace: () => configuredWorkspace, openPath, revealPath })
 })
 afterEach(() => rmSync(directory, { recursive: true, force: true }))
+
+describe('sandboxed HTML resources', () => {
+  it('issues stable workspace tokens and serves HTML and relative assets with restrictive headers', async () => {
+    const name = 'preview #1.html'
+    write(join(workspace, name), '<h1>Hello</h1>')
+    write(join(workspace, 'style.css'), 'h1 { color: red }')
+    const preview = await service.preview(reference(name))
+    expect(preview).toMatchObject({ kind: 'html', text: '<h1>Hello</h1>', canOpen: true })
+    const token = await service.previewToken(workspace)
+    expect(token).toBe(await service.previewToken(workspace))
+    expect(new URL(preview.previewUrl!).hostname).toBe(token)
+    const response = await service.previewResource(new Request(preview.previewUrl!))
+    expect(await response.text()).toBe(preview.text)
+    expect(response.headers.get('content-type')).toBe('text/html')
+    expect(response.headers.get('content-security-policy')).toBe(PREVIEW_CSP)
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    const css = await service.previewResource(new Request(`praxis-preview://${token}/style.css`))
+    expect(css.headers.get('content-type')).toBe('text/css')
+    expect(await css.text()).toContain('color: red')
+    const head = await service.previewResource(new Request(preview.previewUrl!, { method: 'HEAD' }))
+    expect(head.status).toBe(200)
+    expect(await head.text()).toBe('')
+  })
+
+  it('rejects unknown tokens, unauthorized roots, traversal, symlink escapes and device paths', async () => {
+    write(join(outside, 'secret.html'), 'outside')
+    symlinkSync(outside, join(workspace, 'escape'), process.platform === 'win32' ? 'junction' : 'dir')
+    await expect(service.previewToken(outside)).rejects.toThrow('not authorized')
+    const token = await service.previewToken(workspace)
+    const paths = ['../workspace-other/secret.html', '%2e%2e%2fworkspace-other%2fsecret.html', '%2e%2e%5cworkspace-other%5csecret.html', 'escape/secret.html', '%2f%2fserver/share', 'CON', 'escape', 'missing.html']
+    for (const path of paths) {
+      const response = await service.previewResource(new Request(`praxis-preview://${token}/${path}`))
+      expect(response.status, path).toBe(404)
+    }
+    expect((await service.previewResource(new Request('praxis-preview://unknown/secret.html'))).status).toBe(404)
+    expect((await service.previewResource(new Request(`praxis-preview://${token}/secret.html`, { method: 'POST' }))).status).toBe(404)
+  })
+})
 
 describe('local file boundaries', () => {
   it('resolves relative, absolute and file URLs with Chinese, spaces and literal # characters', async () => {
@@ -192,5 +232,85 @@ describe('explicit file actions', () => {
     write(join(workspace, 'report.txt'), 'test')
     openPath.mockResolvedValue('No application is associated with this file')
     await expect(service.open(reference('report.txt'))).rejects.toThrow('No application is associated')
+  })
+})
+
+
+describe('workspace file suggestions', () => {
+  it('rejects unauthorized workspaces, including previously cached results', async () => {
+    write(join(workspace, 'local.txt'), '')
+    await expect(service.listFiles({ workspace: outside, query: '' })).rejects.toThrow('not authorized')
+    expect((await service.listFiles({ workspace, query: '' })).files).toEqual(['local.txt'])
+    configuredWorkspace = outside
+    await expect(service.listFiles({ workspace, query: '' })).rejects.toThrow('not authorized')
+    service.rememberBackendResponse('session.open', { session: { id: 'remembered', workspace } })
+    expect((await service.listFiles({ workspace, query: '' })).files).toEqual(['local.txt'])
+  })
+
+  it('walks non-git directories while excluding build and environment directories and links', async () => {
+    for (const name of ['.git', 'node_modules', '.venv', 'venv', '__pycache__', 'dist', 'out', 'build', 'release', 'test-results']) {
+      mkdirSync(join(workspace, name))
+      write(join(workspace, name, 'hidden.txt'), '')
+    }
+    mkdirSync(join(workspace, 'src'))
+    write(join(workspace, 'src', '文件.ts'), '')
+    write(join(outside, 'secret.txt'), '')
+    symlinkSync(outside, join(workspace, 'linked'), process.platform === 'win32' ? 'junction' : 'dir')
+    expect(await service.listFiles({ workspace, query: '' })).toEqual({ files: ['src/文件.ts'], truncated: false })
+  })
+
+  it('ranks basename prefixes, basename substrings and full-path subsequences in that order', async () => {
+    for (const path of ['ab.ts', 'long/ab.ts', 'zab.ts', 'a/b.ts', 'unrelated.ts']) {
+      const parts = path.split('/')
+      if (parts.length > 1) mkdirSync(join(workspace, parts[0]), { recursive: true })
+      write(join(workspace, ...parts), '')
+    }
+    expect((await service.listFiles({ workspace, query: 'AB' })).files).toEqual(['ab.ts', 'long/ab.ts', 'zab.ts', 'a/b.ts'])
+  })
+
+  it('returns at most 50 files in modification order for an empty query', async () => {
+    for (let index = 0; index < 55; index += 1) {
+      const path = write(join(workspace, `file-${index}.txt`), '')
+      utimesSync(path, 1_700_000_000 + index, 1_700_000_000 + index)
+    }
+    const result = await service.listFiles({ workspace, query: '' })
+    expect(result.files).toHaveLength(50)
+    expect(result.files[0]).toBe('file-54.txt')
+    expect(result.files[49]).toBe('file-5.txt')
+    expect(result.truncated).toBe(true)
+  })
+
+  it('honors git ignore rules and includes tracked files and untracked source', async () => {
+    execFileSync('git', ['init', '-q'], { cwd: workspace, windowsHide: true })
+    write(join(workspace, '.gitignore'), 'ignored.txt')
+    write(join(workspace, 'ignored.txt'), '')
+    write(join(workspace, 'tracked.txt'), '')
+    write(join(workspace, 'untracked.txt'), '')
+    execFileSync('git', ['add', 'tracked.txt'], { cwd: workspace, windowsHide: true })
+    expect((await service.listFiles({ workspace, query: '.txt' })).files).toEqual(['tracked.txt', 'untracked.txt'])
+  })
+
+  it('refreshes the cached index after 30 seconds', async () => {
+    const time = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    try {
+      write(join(workspace, 'first.txt'), '')
+      expect((await service.listFiles({ workspace, query: '' })).files).toEqual(['first.txt'])
+      write(join(workspace, 'second.txt'), '')
+      time.mockReturnValue(30_999)
+      expect((await service.listFiles({ workspace, query: 'second' })).files).toEqual([])
+      time.mockReturnValue(31_001)
+      expect((await service.listFiles({ workspace, query: 'second' })).files).toEqual(['second.txt'])
+    } finally { time.mockRestore() }
+  })
+
+  it('stops descending after twelve directory levels', async () => {
+    const twelve = join(workspace, ...Array.from({ length: 12 }, (_, index) => `d${index}`))
+    mkdirSync(join(twelve, 'deeper'), { recursive: true })
+    write(join(twelve, 'visible.txt'), '')
+    write(join(twelve, 'deeper', 'hidden.txt'), '')
+    const result = await service.listFiles({ workspace, query: '.txt' })
+    expect(result.files).toHaveLength(1)
+    expect(result.files[0]).toMatch(/visible.txt$/)
+    expect(result.truncated).toBe(true)
   })
 })

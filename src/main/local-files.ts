@@ -1,5 +1,9 @@
 import { realpathSync, statSync } from 'node:fs'
-import { open, realpath, stat, type FileHandle } from 'node:fs/promises'
+import { open, realpath, stat, lstat, opendir, type FileHandle } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { randomUUID } from 'node:crypto'
+import { Readable } from 'node:stream'
 import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { FileActionResult, FilePreview, PraxisEvent } from '../shared/protocol'
@@ -12,9 +16,100 @@ const imageTypes: Record<string, string> = {
 }
 const openableExtensions = new Set([
   ...Object.keys(imageTypes), '.tif', '.tiff', '.pdf', '.txt', '.md', '.markdown', '.log', '.csv', '.tsv', '.rtf',
-  '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods', '.odp'
+  '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods', '.odp', '.html', '.htm'
 ])
+export const PREVIEW_CSP = "default-src praxis-preview: data: blob: 'unsafe-inline'; script-src praxis-preview: 'unsafe-inline'; connect-src 'none'; form-action 'none'; frame-ancestors 'self' file: http://localhost:* http://127.0.0.1:*"
+const previewTypes: Record<string, string> = { ...imageTypes, '.html': 'text/html', '.htm': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.svg': 'image/svg+xml', '.txt': 'text/plain', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf', '.ico': 'image/x-icon' }
 const canOpenFile = (path: string): boolean => openableExtensions.has(extname(path).toLowerCase())
+const executeFile = promisify(execFile)
+const excludedDirectories = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', 'dist', 'out', 'build', 'release', 'test-results'])
+const FILE_LIST_LIMIT = 20_000
+type IndexedFile = { path: string; mtime: number }
+type FileIndex = { files: IndexedFile[]; truncated: boolean }
+
+function matchFile(path: string, query: string): number {
+  const lower = path.toLowerCase()
+  const name = lower.slice(lower.lastIndexOf('/') + 1)
+  if (name.startsWith(query)) return 0
+  if (name.includes(query)) return 1
+  let position = 0
+  for (const character of query) {
+    position = lower.indexOf(character, position)
+    if (position < 0) return -1
+    position += character.length
+  }
+  return 2
+}
+
+async function indexFiles(root: string): Promise<FileIndex> {
+  const files: IndexedFile[] = []
+  let truncated = false
+  let gitFiles: string[] | undefined
+  try {
+    const result = await executeFile('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, windowsHide: true, timeout: 15_000, maxBuffer: 8 * 1024 * 1024 })
+    gitFiles = [...new Set(result.stdout.split('\0').filter(Boolean))]
+  } catch {}
+  if (gitFiles) {
+    const directories = new Map<string, Promise<boolean>>()
+    const safeDirectory = (path: string): Promise<boolean> => {
+      if (!path) return Promise.resolve(true)
+      if (!directories.has(path)) directories.set(path, (async () => {
+        const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+        if (!await safeDirectory(parent)) return false
+        try {
+          const full = resolve(root, path)
+          const info = await lstat(full)
+          return info.isDirectory() && !info.isSymbolicLink() && pathKey(await realpath(full)) === pathKey(full)
+        } catch { return false }
+      })())
+      return directories.get(path)!
+    }
+    truncated = gitFiles.length > FILE_LIST_LIMIT
+    const candidates = gitFiles.slice(0, FILE_LIST_LIMIT)
+    for (let offset = 0; offset < candidates.length; offset += 32) {
+      const batch = await Promise.all(candidates.slice(offset, offset + 32).map(async path => {
+        const parts = path.split('/')
+        if (parts.length > 13) { truncated = true; return undefined }
+        if (isAbsolute(path) || parts.some(part => part === '..' || !part)) return undefined
+        const full = resolve(root, path)
+        if (!withinWorkspace(root, full) || !await safeDirectory(parts.slice(0, -1).join('/'))) return undefined
+        try {
+          assertLocalPath(full)
+          const info = await lstat(full)
+          return info.isFile() && !info.isSymbolicLink() ? { path, mtime: info.mtimeMs } : undefined
+        } catch { return undefined }
+      }))
+      files.push(...batch.filter((file): file is IndexedFile => Boolean(file)))
+    }
+  } else {
+    let directoryCount = 0
+    const visit = async (directory: string, depth: number): Promise<void> => {
+      if (depth > 12 || files.length >= FILE_LIST_LIMIT || directoryCount >= FILE_LIST_LIMIT) { truncated = true; return }
+      directoryCount += 1
+      const full = resolve(root, directory)
+      try {
+        if (pathKey(await realpath(full)) !== pathKey(full)) return
+        const entries = await opendir(full)
+        for await (const entry of entries) {
+          if (files.length >= FILE_LIST_LIMIT) { truncated = true; break }
+          if (entry.isSymbolicLink()) continue
+          const path = directory ? `${directory}/${entry.name}` : entry.name
+          if (entry.isDirectory() && !excludedDirectories.has(entry.name)) await visit(path, depth + 1)
+          else if (entry.isFile()) {
+            try {
+              const info = await lstat(resolve(root, path))
+              if (info.isFile() && !info.isSymbolicLink()) files.push({ path, mtime: info.mtimeMs })
+            } catch {}
+          }
+        }
+      } catch (error) {
+        if (!directory) throw error
+      }
+    }
+    await visit('', 0)
+  }
+  return { files, truncated }
+}
 
 interface LocalFileOptions {
   getWorkspace(): string
@@ -119,6 +214,8 @@ function decodeText(bytes: Buffer, truncated: boolean): string | undefined {
 
 export class LocalFileService {
   private sessionWorkspaces = new Map<string, string>()
+  private fileIndexes = new Map<string, { expires: number; value: Promise<FileIndex> }>()
+  private previewRoots = new Map<string, string>()
 
   constructor(private options: LocalFileOptions) {}
 
@@ -146,10 +243,8 @@ export class LocalFileService {
     } catch { /* Missing historical workspaces do not prevent a session list from loading. */ }
   }
 
-  private async resolveFile(reference: unknown): Promise<{ path: string; root: string }> {
-    const input = record(reference)
-    if (!input) throw new Error('Invalid file reference')
-    const requested = workspacePath(input.workspace)
+  private async authorizedRoot(workspace: unknown): Promise<string> {
+    const requested = workspacePath(workspace)
     const configured = workspacePath(this.options.getWorkspace())
     const remembered = this.sessionWorkspaces.get(pathKey(requested))
     const current = pathKey(requested) === pathKey(configured)
@@ -157,7 +252,39 @@ export class LocalFileService {
     const root = await realpath(requested)
     assertLocalPath(root)
     if (!current && pathKey(root) !== pathKey(remembered!)) throw new Error('The workspace location changed. Open its chat again.')
-    for (const candidate of fileCandidates(input.path)) {
+    if (!(await stat(root)).isDirectory()) throw new Error('Invalid workspace path')
+    return root
+  }
+
+  async listFiles(request: unknown): Promise<{ files: string[]; truncated: boolean }> {
+    const input = record(request)
+    if (!input || typeof input.query !== 'string' || input.query.length > 1024) throw new Error('Invalid file query')
+    const root = await this.authorizedRoot(input.workspace)
+    const key = pathKey(root)
+    let cached = this.fileIndexes.get(key)
+    if (!cached || cached.expires <= Date.now()) {
+      cached = { expires: Date.now() + 30_000, value: indexFiles(root) }
+      this.fileIndexes.set(key, cached)
+      if (this.fileIndexes.size > 32) this.fileIndexes.delete(this.fileIndexes.keys().next().value!)
+      void cached.value.catch(() => { if (this.fileIndexes.get(key) === cached) this.fileIndexes.delete(key) })
+    }
+    const index = await cached.value
+    const query = input.query.toLowerCase().replaceAll('\\', '/')
+    const matches = query ? index.files.map(file => ({ ...file, rank: matchFile(file.path, query) })).filter(file => file.rank >= 0)
+      .sort((a, b) => a.rank - b.rank || a.path.length - b.path.length || a.path.localeCompare(b.path))
+      : [...index.files].sort((a, b) => b.mtime - a.mtime || a.path.localeCompare(b.path))
+    return { files: matches.slice(0, 50).map(file => file.path), truncated: index.truncated || matches.length > 50 }
+  }
+
+  private async resolveFile(reference: unknown): Promise<{ path: string; root: string }> {
+    const input = record(reference)
+    if (!input) throw new Error('Invalid file reference')
+    const root = await this.authorizedRoot(input.workspace)
+    return this.resolveWithinRoot(root, input.path)
+  }
+
+  private async resolveWithinRoot(root: string, value: unknown): Promise<{ path: string; root: string }> {
+    for (const candidate of fileCandidates(value)) {
       let path: string
       try { path = await realpath(resolve(root, candidate)) } catch (error) {
         if (['ENOENT', 'ENOTDIR', 'EINVAL'].includes((error as NodeJS.ErrnoException).code || '')) continue
@@ -169,6 +296,43 @@ export class LocalFileService {
       return { path, root }
     }
     throw new Error('The file no longer exists or the reference is invalid')
+  }
+
+  async previewToken(workspace: string): Promise<string> {
+    return this.tokenForRoot(await this.authorizedRoot(workspace))
+  }
+
+  private tokenForRoot(root: string): string {
+    for (const [token, known] of this.previewRoots) if (pathKey(known) === pathKey(root)) return token
+    const token = randomUUID()
+    this.previewRoots.set(token, root)
+    return token
+  }
+
+  async previewResource(request: Request): Promise<Response> {
+    const headers = { 'Content-Security-Policy': PREVIEW_CSP, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }
+    let file: FileHandle | undefined
+    try {
+      const url = new URL(request.url)
+      const root = this.previewRoots.get(url.hostname)
+      if (url.protocol !== 'praxis-preview:' || !root || url.username || url.password || url.port || !['GET', 'HEAD'].includes(request.method)) throw new Error('Invalid preview request')
+      const path = decodeURIComponent(url.pathname.slice(1))
+      if (!path || isAbsolute(path) || path.split(/[/\\]/).some(part => part === '..')) throw new Error('Invalid preview path')
+      const resolved = await this.resolveWithinRoot(root, path)
+      file = await open(resolved.path, 'r')
+      const information = await file.stat()
+      const current = await realpath(resolved.path)
+      if (!information.isFile() || !withinWorkspace(root, current) || pathKey(current) !== pathKey(resolved.path)) throw new Error('Invalid preview file')
+      const contentType = previewTypes[extname(resolved.path).toLowerCase()] || 'application/octet-stream'
+      const responseHeaders = { ...headers, 'Content-Type': contentType, 'Content-Length': String(information.size) }
+      if (request.method === 'HEAD') { await file.close(); file = undefined; return new Response(null, { headers: responseHeaders }) }
+      const stream = Readable.toWeb(file.createReadStream({ autoClose: true })) as ReadableStream<Uint8Array>
+      file = undefined
+      return new Response(stream, { headers: responseHeaders })
+    } catch {
+      await file?.close().catch(() => {})
+      return new Response('Not found', { status: 404, headers: { ...headers, 'Content-Type': 'text/plain' } })
+    }
   }
 
   async preview(reference: unknown): Promise<FilePreview> {
@@ -196,6 +360,11 @@ export class LocalFileService {
       }
       const truncated = information.size > limit
       const text = decodeText(bytes, truncated)
+      if (text !== undefined && ['.html', '.htm'].includes(extension)) {
+        const token = this.tokenForRoot(root)
+        const location = relative(root, path).split(sep).map(encodeURIComponent).join('/')
+        return { ...preview, kind: 'html', text, truncated, previewUrl: `praxis-preview://${token}/${location}` }
+      }
       return text === undefined ? preview : { ...preview, kind: ['.md', '.markdown'].includes(extension) ? 'markdown' : 'text', text, truncated }
     } finally { await file.close() }
   }

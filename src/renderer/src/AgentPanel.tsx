@@ -21,6 +21,7 @@ export function AgentPanel({ agents, selected, onSelect, onClose, compact, width
   const positions = useRef(new Map<string, { top: number; following: boolean }>())
   const following = useRef(false)
   const downwardIntentUntil = useRef(0)
+  const pinned = useRef<Element | null>(null)
   const drag = useRef<{ x: number; width: number } | null>(null)
   const [resizing, setResizing] = useState(false)
   const resize = (value: number) => onResize(Math.round(Math.max(minWidth, Math.min(maxWidth, value))))
@@ -38,6 +39,7 @@ export function AgentPanel({ agents, selected, onSelect, onClose, compact, width
     const saved = positions.current.get(selected)
     region.scrollTop = saved?.top || 0
     following.current = saved?.following ?? region.scrollHeight <= region.clientHeight
+    pinned.current = null
     return () => { positions.current.set(selected, { top: region.scrollTop, following: following.current }) }
   }, [selected])
   useLayoutEffect(() => {
@@ -84,21 +86,25 @@ export function AgentPanel({ agents, selected, onSelect, onClose, compact, width
     <div className="agent-panel-scroll" ref={scroll} onScroll={event => {
       const node = event.currentTarget
       if (node.scrollHeight - node.scrollTop - node.clientHeight >= 24) following.current = false
-      else if (performance.now() < downwardIntentUntil.current) following.current = true
+      else if (performance.now() < downwardIntentUntil.current) { following.current = true; pinned.current = null }
     }} onWheel={event => {
+      pinned.current = null
       if (event.deltaY < 0) { following.current = false; downwardIntentUntil.current = 0 }
       else if (event.deltaY > 0) downwardIntentUntil.current = performance.now() + 350
     }} onPointerDown={event => {
-      if (event.target === event.currentTarget) downwardIntentUntil.current = performance.now() + 2000
+      const control = event.target instanceof Element ? event.target.closest('summary, .tool-attention button') : null
+      if (control) { following.current = false; downwardIntentUntil.current = 0; pinned.current = control }
+      else if (event.target === event.currentTarget) { downwardIntentUntil.current = performance.now() + 2000; pinned.current = null }
     }} onClickCapture={event => {
       if (event.target instanceof Element && event.target.closest('summary, .tool-attention button')) following.current = false
     }} onKeyDownCapture={event => {
-      if (['End', 'PageDown', 'ArrowDown'].includes(event.key)) downwardIntentUntil.current = performance.now() + 350
-      if (['Home', 'PageUp', 'ArrowUp'].includes(event.key) || ['Enter', ' '].includes(event.key) && event.target instanceof Element && event.target.closest('summary')) {
-        following.current = false; downwardIntentUntil.current = 0
+      if (['End', 'PageDown', 'ArrowDown'].includes(event.key)) { downwardIntentUntil.current = performance.now() + 350; pinned.current = null }
+      const control = event.target instanceof Element ? event.target.closest('summary') : null
+      if (['Home', 'PageUp', 'ArrowUp'].includes(event.key) || ['Enter', ' '].includes(event.key) && control) {
+        following.current = false; downwardIntentUntil.current = 0; pinned.current = ['Enter', ' '].includes(event.key) ? control : null
       }
     }}>
-      <ReadingAnchor container={scroll} following={following}>
+      <ReadingAnchor container={scroll} following={following} pinned={pinned}>
       {items.map(message => message.role === 'tool-group' ? <ToolActivity key={message.id} group={message} isCurrent={message.id === currentGroupId} />
         : message.role === 'user' ? <div className="agent-instruction" key={message.id}><div className="agent-section-label">Task</div><MarkdownContent content={message.content} allowRelativeFiles={false} decorateFiles={false} /></div>
         : <Message key={message.id} message={message} hideAgentLabel showActions={message.id === lastResponse && message.status !== 'streaming'} />)}

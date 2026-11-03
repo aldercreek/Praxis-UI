@@ -21,6 +21,7 @@ const api: DesktopAPI = {
   openExternal: url => ipcRenderer.invoke('praxis:open-external', url),
   openWorkspace: () => ipcRenderer.invoke('praxis:open-workspace'),
   previewFile: reference => ipcRenderer.invoke('praxis:preview-file', reference),
+  listFiles: request => ipcRenderer.invoke('praxis:list-files', request),
   openFile: reference => ipcRenderer.invoke('praxis:open-file', reference),
   revealFile: reference => ipcRenderer.invoke('praxis:reveal-file', reference),
   restart: () => ipcRenderer.invoke('praxis:restart'),

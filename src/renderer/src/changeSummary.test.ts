@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { collectTurnChanges, fileChangePreviewPath } from './changeSummary'
+import { collectTurnChanges, createChangeCollector, fileChangePreviewPath } from './changeSummary'
 import { contentLink, safeContentUrl } from './fileLinks'
 import { formatQuotedInput, readQuotedInput } from './quotedInput'
 import type { DisplayMessage } from './state'
@@ -7,6 +7,20 @@ import type { DisplayMessage } from './state'
 const edit = (id: string, path: string, turn_id = 'turn-1', diff = '-before\n+after'): DisplayMessage => ({ id, role: 'tool', content: '', turn_id, file_change: { path, diff, added: 1, removed: 1 }, tool_finished: true })
 
 describe('turn changes', () => {
+  it('retains unchanged summaries during streaming and refreshes changed edits or workspaces', () => {
+    const collect = createChangeCollector()
+    const a = edit('a', 'a.ts')
+    const b = edit('b', 'b.ts', 'turn-2')
+    const first = collect([a, b], '/project')
+    expect(collect([a, b, { id: 'text', role: 'assistant', content: 'New chunk' }], '/project')).toBe(first)
+    const updated = collect([a, { ...b, file_change: { ...b.file_change!, added: 7 } }], '/project')
+    expect(updated[0]).toBe(first[0])
+    expect(updated[1]).not.toBe(first[1])
+    expect(updated[1].files[0].edits[0].added).toBe(7)
+    expect(collect([a, b], '/other')[0]).not.toBe(first[0])
+    expect(collect([], '/other')).toEqual([])
+  })
+
   it('groups repeat edits to a file while retaining their order and exact diffs', () => {
     const changes = collectTurnChanges([edit('a', 'src/app.ts'), edit('b', 'D:\\project\\src\\app.ts', 'turn-1', '-after\n+final'), edit('c', 'src/other.ts')], 'D:\\project')
     expect(changes[0].files).toHaveLength(2)

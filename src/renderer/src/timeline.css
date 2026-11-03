@@ -130,6 +130,10 @@ details > summary:hover > .tool-head-main > .disclosure-icon, details > summary:
 .file-tooltip-anchor { display: inline-flex; min-width: 0; max-width: 100%; vertical-align: bottom; }
 .file-path-tooltip { position: fixed; z-index: 60; padding: 4px 8px; border-radius: var(--radius-sm); max-width: min(360px, calc(100vw - 16px)); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-overlay); font: 12px/20px var(--font-ui); pointer-events: none; overflow-wrap: anywhere; white-space: pre-wrap; }
 .tool-log .command-line { line-height: 19.2px; }
+.tool-log .exec-language { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.command-actions { display: flex; align-items: center; gap: 4px; }
+.command-outcome { margin-top: 8px; color: var(--muted); font: 12px/18px var(--font-ui); }
+.command-outcome.error-text { color: var(--error); }
 
 .tool-file-change .file-diff > span { display: flex; gap: 6px; }
 .diff-sign { width: 14px; flex: none; user-select: none; }
@@ -139,3 +143,4 @@ details > summary:hover > .tool-head-main > .disclosure-icon, details > summary:
 .transcript-turn:has(.turn-final .file-reference-row .file-stats) > .turn-changes-summary { display: none; }
 .file-reference-row .file-stats { font: 400 14px/24.5px var(--font-conversation); }
 .message-delivery-note { margin-top: 6px; color: var(--muted); font: 12px/18px var(--font-ui); text-align: right; }
+.transcript-turn[data-settled="true"]:not(:nth-last-child(-n+3 of .transcript-turn)) { content-visibility: auto; contain-intrinsic-size: auto 800px; }

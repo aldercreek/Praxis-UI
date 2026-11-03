@@ -1,5 +1,7 @@
 export interface TextQuote { text: string; messageId: string }
 
+export const tableQuoteText = (markdown: string): string => markdown.replaceAll('\r\n', '\n')
+
 export interface QuoteSource { element: object; messageId: string }
 
 export function createTextQuote(text: string, start: QuoteSource | null, end: QuoteSource | null): TextQuote | null {
