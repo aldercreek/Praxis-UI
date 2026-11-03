@@ -2,6 +2,12 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { DesktopAPI, PraxisEvent, ConnectionStatus } from '../shared/protocol'
 
 const api: DesktopAPI = {
+  notify: payload => ipcRenderer.send('praxis:notify', payload),
+  onOpenSession(listener) {
+    const handler = (_: Electron.IpcRendererEvent, sessionId: string): void => listener(sessionId)
+    ipcRenderer.on('praxis:open-session', handler)
+    return () => ipcRenderer.removeListener('praxis:open-session', handler)
+  },
   acknowledge: (sessionId, sequence) => ipcRenderer.send("praxis:ack", sessionId, sequence),
   getInfo: () => ipcRenderer.invoke('praxis:info'),
   request: (method, params) => ipcRenderer.invoke('praxis:request', method, params),

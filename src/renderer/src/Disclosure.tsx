@@ -1,6 +1,15 @@
-import { Children, cloneElement, createContext, isValidElement, useContext, useLayoutEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react'
+import { Children, cloneElement, createContext, isValidElement, useCallback, useContext, useLayoutEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react'
 
 export const DisclosureState = createContext<Map<string, boolean> | undefined>(undefined)
+export const DisclosureRevealContext = createContext<Map<string, () => void> | undefined>(undefined)
+
+export function useDisclosureReveal(key: string, reveal: () => void) {
+  const registry = useContext(DisclosureRevealContext)
+  useLayoutEffect(() => {
+    registry?.set(key, reveal)
+    return () => { if (registry?.get(key) === reveal) registry.delete(key) }
+  }, [registry, key, reveal])
+}
 
 // Only explicit user choices are saved. Automatic defaults may change when a
 // stage ends without an onToggle event accidentally turning them into overrides.
@@ -8,23 +17,24 @@ export function useDisclosure(storageKey: string, defaultOpen = false) {
   const saved = useContext(DisclosureState)
   const [choice, setChoice] = useState<{ key: string; open: boolean }>()
   const open = (choice?.key === storageKey ? choice.open : saved?.get(storageKey)) ?? defaultOpen
-  const setOpen = (value: boolean) => {
+  const setOpen = useCallback((value: boolean) => {
     saved?.set(storageKey, value)
     setChoice({ key: storageKey, open: value })
-  }
+  }, [saved, storageKey])
   return [open, setOpen] as const
 }
 
 export function Disclosure({ storageKey, defaultOpen = false, forceOpen = false, open: controlledOpen, onOpenChange, children, ...props }: ComponentPropsWithoutRef<'details'> & { storageKey: string; defaultOpen?: boolean; forceOpen?: boolean; onOpenChange?: (open: boolean) => void }) {
   const [chosenOpen, setOpen] = useDisclosure(storageKey, defaultOpen)
   const open = forceOpen || (controlledOpen ?? chosenOpen)
+  useDisclosureReveal(storageKey, useCallback(() => (onOpenChange || setOpen)(true), [onOpenChange, setOpen]))
   const ref = useRef<HTMLDetailsElement>(null)
   useLayoutEffect(() => {
     const node = ref.current
     const summary = node?.querySelector<HTMLElement>(':scope > summary')
     if (!open && node?.contains(document.activeElement) && !summary?.contains(document.activeElement)) summary?.focus({ preventScroll: true })
   }, [open])
-  return <details {...props} ref={ref} open={open} data-expanded={open} onClickCapture={event => {
+  return <details {...props} ref={ref} open={open} data-expanded={open} data-disclosure-key={storageKey} onClickCapture={event => {
     const target = event.target instanceof Element ? event.target : undefined
     const summary = target?.closest('summary')
     if (summary?.parentElement !== event.currentTarget || target?.closest('button, a, input')) return

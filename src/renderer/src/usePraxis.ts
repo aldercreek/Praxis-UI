@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ConnectionStatus, DesktopInfo, DesktopSettings, PraxisEvent, SessionSnapshot, SessionSummary } from '../../shared/protocol'
+import type { ConnectionStatus, DesktopInfo, DesktopNotification, DesktopSettings, PraxisEvent, SessionSnapshot, SessionSummary } from '../../shared/protocol'
 import { applyEvent, applySnapshot, emptyConversation, isBusy, type Conversation } from './state'
+import { notificationFromEvent, notificationsFromList, rememberNotification } from './notifications'
 
 export const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
 export const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) || path
@@ -26,12 +27,20 @@ export function usePraxis() {
   const snapshots = useRef(new Map<string, { events: PraxisEvent[]; generation: number }>())
   const connectionGeneration = useRef(0)
   const refreshing = useRef<number | null>(null)
+  const notificationKeys = useRef(new Set<string>())
+  const notificationSequences = useRef(new Map<string, number>())
+  const listedSessions = useRef<SessionSummary[]>([])
+  const notify = useCallback((items: DesktopNotification[]) => {
+    for (const item of items) if (!removed.current.has(item.sessionId) && rememberNotification(notificationKeys.current, item.key) && !snapshots.current.has(item.sessionId)) api?.notify(item)
+  }, [api])
   conversationsRef.current = conversations
   const removeSession = useCallback((sessionId: string) => {
     removed.current.add(sessionId)
     const clientId = conversationsRef.current[sessionId]?.clientId
     if (clientId) removed.current.add(clientId)
     snapshots.current.delete(sessionId)
+    notificationSequences.current.delete(sessionId)
+    listedSessions.current = listedSessions.current.filter(session => session.id !== sessionId)
     setLoadingSession(previous => previous === sessionId ? null : previous)
     setActiveId(previous => previous === sessionId ? null : previous)
     setConversations(previous => {
@@ -60,6 +69,8 @@ export function usePraxis() {
       const result = await api.request<{ sessions: SessionSummary[] }>('session.list')
       if (generation !== connectionGeneration.current) return
       const listed = new Set(result.sessions.map(session => session.id))
+      notify(notificationsFromList(listedSessions.current, result.sessions))
+      listedSessions.current = result.sessions
       for (const id of Object.keys(before)) if (!listed.has(id) && !before[id].localSession) removeSession(id)
       setConversations(previous => {
         const next = { ...previous }
@@ -80,7 +91,7 @@ export function usePraxis() {
     } finally {
       if (refreshing.current === generation) refreshing.current = null
     }
-  }, [api, removeSession])
+  }, [api, removeSession, notify])
 
   useEffect(() => {
     if (!api) return
@@ -92,8 +103,17 @@ export function usePraxis() {
       const buffered = snapshots.current.get(event.session_id)
       if (buffered) {
         buffered.events.push(event)
+        const item = notificationFromEvent(event, conversationsRef.current[event.session_id]?.summary)
+        if (item) rememberNotification(notificationKeys.current, item.key)
         return
       }
+      const current = conversationsRef.current[event.session_id]
+      const sequence = notificationSequences.current.get(event.session_id) ?? current?.sequence ?? 0
+      if (current?.loaded && (event.sequence === undefined || event.sequence > sequence)) {
+        const item = notificationFromEvent(event, current.summary)
+        if (item) notify([item])
+      }
+      if (event.sequence !== undefined) notificationSequences.current.set(event.session_id, Math.max(sequence, event.sequence))
       setConversations(previous => ({ ...previous, [event.session_id!]: applyEvent(previous[event.session_id!] || emptyConversation(), event) }))
     })
     const offConnection = api.onConnection(status => {
@@ -107,6 +127,8 @@ export function usePraxis() {
         void refresh(true)
       } else if (status.state === 'connected') {
         connectionGeneration.current += 1
+        listedSessions.current = []
+        notificationSequences.current.clear()
         snapshots.current.clear()
         setLoadingSession(null)
         setError('')
@@ -138,7 +160,7 @@ export function usePraxis() {
       setError(errorMessage(error))
     })
     return () => { offEvent(); offConnection() }
-  }, [api, refresh, removeSession])
+  }, [api, refresh, removeSession, notify])
 
   useEffect(() => {
     if (connection.state !== 'connected') return
@@ -163,17 +185,33 @@ export function usePraxis() {
       if (operation.generation !== connectionGeneration.current || snapshots.current.get(sessionId) !== operation) return
       const buffered = operation.events
       snapshots.current.delete(sessionId)
+      notificationSequences.current.set(sessionId, buffered.reduce((sequence, event) => Math.max(sequence, event.sequence || 0), result.sequence))
+      for (const event of [...(result.view_events || []), ...buffered]) {
+        const item = notificationFromEvent(event, result.session)
+        if (item) rememberNotification(notificationKeys.current, item.key)
+      }
+      const latest = result.session.latest_turn
+      if (latest && ['completed', 'failed'].includes(latest.status)) rememberNotification(notificationKeys.current, `${sessionId}:${latest.id}:${latest.status}`)
+      for (const approval of result.approvals) rememberNotification(notificationKeys.current, approval.approval_id)
+      listedSessions.current = listedSessions.current.map(session => session.id === sessionId ? result.session : session)
       setConversations(previous => ({ ...previous, [sessionId]: { ...applySnapshot(result, buffered), clientId: previous[sessionId]?.clientId } }))
     } catch (error) {
       if (operation.generation !== connectionGeneration.current || snapshots.current.get(sessionId) !== operation) return
       const buffered = operation.events
       snapshots.current.delete(sessionId)
+      for (const event of buffered) {
+        const item = notificationFromEvent(event, conversationsRef.current[sessionId]?.summary)
+        if (item) rememberNotification(notificationKeys.current, item.key)
+        notificationSequences.current.set(sessionId, Math.max(notificationSequences.current.get(sessionId) || 0, event.sequence || 0))
+      }
       setConversations(previous => ({ ...previous, [sessionId]: buffered.reduce(applyEvent, previous[sessionId] || emptyConversation()) }))
       setError(errorMessage(error))
     } finally {
       if (operation.generation === connectionGeneration.current) setLoadingSession(previous => previous === sessionId ? null : previous)
     }
   }, [api])
+
+  useEffect(() => api?.onOpenSession(sessionId => { void openSession(sessionId) }), [api, openSession])
 
   useEffect(() => {
     if (connection.state === 'connected' && activeId && !conversationsRef.current[activeId]?.loaded) void openSession(activeId)

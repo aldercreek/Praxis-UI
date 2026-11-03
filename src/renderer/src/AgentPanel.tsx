@@ -8,9 +8,10 @@ import { ReadingAnchor } from './ReadingAnchor'
 import { currentToolGroupId, groupTranscript } from './toolPresentation'
 import { ToolActivity } from './ToolActivity'
 
-export function AgentPanel({ agents, selected, onSelect, onClose, compact, width, minWidth, maxWidth, onResize }: {
+export function AgentPanel({ agents, selected, onSelect, onClose, compact, width, minWidth, maxWidth, onResize, findNavigation = 0 }: {
   agents: AgentTask[]; selected: string; onSelect: (key: string) => void; onClose: () => void; compact: boolean
   width: number; minWidth: number; maxWidth: number; onResize: (width: number) => void
+  findNavigation?: number
 }) {
   const index = agents.findIndex(agent => agent.key === selected)
   const task = agents[index]
@@ -24,6 +25,9 @@ export function AgentPanel({ agents, selected, onSelect, onClose, compact, width
   const pinned = useRef<Element | null>(null)
   const drag = useRef<{ x: number; width: number } | null>(null)
   const [resizing, setResizing] = useState(false)
+  useLayoutEffect(() => {
+    if (findNavigation) { following.current = false; pinned.current = null; downwardIntentUntil.current = 0 }
+  }, [findNavigation])
   const resize = (value: number) => onResize(Math.round(Math.max(minWidth, Math.min(maxWidth, value))))
   useEffect(() => {
     if (compact) { drag.current = null; setResizing(false) }

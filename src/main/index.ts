@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, protocol, shell } from 'electron'
 import { existsSync, statSync } from 'node:fs'
 import { delimiter, join, resolve } from 'node:path'
 import { BackendClient } from './backend-client'
@@ -6,6 +6,7 @@ import { createDiagnosticWriter } from './diagnostics'
 import { LocalFileService } from './local-files'
 import { constrainPreviewLinks } from './preview-navigation'
 import { SettingsStore } from './settings'
+import { DesktopNotifications } from './notifications'
 import type { DesktopInfo, DesktopSettings, FileActionResult } from '../shared/protocol'
 
 const backend = new BackendClient()
@@ -15,6 +16,7 @@ const testMode = !app.isPackaged && process.env.PRAXIS_UI_TEST_MODE === '1'
 let window: BrowserWindow | undefined
 let settings: SettingsStore
 let localFiles: LocalFileService
+let notifications: DesktopNotifications
 let quitting = false
 let connecting: Promise<void> | undefined
 let configurationChanges: Promise<void> = Promise.resolve()
@@ -106,6 +108,7 @@ function trusted(event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): vo
 }
 
 function registerIPC(): void {
+  ipcMain.on('praxis:notify', (event, payload: unknown) => { trusted(event); notifications.send(payload) })
   ipcMain.on('praxis:ack', (event, sessionId: unknown, sequence: unknown) => {
     trusted(event)
     if (typeof sessionId === 'string' && typeof sequence === 'number') backend.acknowledge(sessionId, sequence)
@@ -137,7 +140,8 @@ function registerIPC(): void {
       if (needsRestart) validateEngine({ ...before, ...patch })
       if (patch.workspace) assertDirectory(patch.workspace, 'Workspace')
       settings.update(patch)
-      if (needsRestart || backend.status.state === 'error') await startBackend(needsRestart)
+      if (patch.notifications === false) notifications.clear()
+      if (needsRestart || backend.status.state === 'error' && Object.keys(patch).some(key => key !== 'notifications')) await startBackend(needsRestart)
       return info()
     })
   })
@@ -202,6 +206,7 @@ function createWindow(): void {
     }
   })
   window.once('ready-to-show', () => { if (!testMode) window?.show() })
+  window.on('focus', () => window?.flashFrame(false))
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
   window.webContents.on('will-frame-navigate', event => {
@@ -222,6 +227,8 @@ function createWindow(): void {
 if (hasLock) void app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId('dev.praxis.desktop')
   settings = new SettingsStore(join(app.getPath('userData'), 'settings.json'), app.getAppPath())
+  notifications = new DesktopNotifications({ enabled: () => settings.get().notifications, supported: () => Notification.isSupported(),
+    window: () => window, create: options => new Notification(options), icon: join(app.getAppPath(), 'resources', 'brand', 'icon.png') })
   const fileActions: FileActionResult[] = []
   if (testMode) Object.assign(globalThis, { __praxisFileActions: fileActions })
   localFiles = new LocalFileService({

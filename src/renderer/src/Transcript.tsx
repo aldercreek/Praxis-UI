@@ -1,10 +1,10 @@
-import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, CircleAlert, GitBranch, FileDiff, Quote, Square } from './icons'
 import { isChildAgent, type Conversation, type DisplayMessage, type PlanStep } from './state'
 import { createTranscriptPresenter, completedLabel, type TranscriptTurn } from './transcriptPresentation'
 import { ToolActivity } from './ToolActivity'
 import { currentToolGroupId, presentTool, presentToolGroup } from './toolPresentation'
-import { useDisclosure } from './Disclosure'
+import { useDisclosure, useDisclosureReveal } from './Disclosure'
 import { TurnPlan } from './ExecutionBar'
 import { FileChangesContext, MarkdownContent } from './MarkdownContent'
 import { type TurnChanges } from './changeSummary'
@@ -38,6 +38,7 @@ const ProcessTurn = memo(function ProcessTurn({ turn, plan, changed, onChanges }
   const hasProcess = layout.groupByItem.size > 0 || Boolean(plan?.length)
   const ids = new Map(turn.items.map((item, index) => [item.id, `${regionId}-${index}`]))
   const completedControl = `${regionId}-completed`
+  useDisclosureReveal(completedControl, useCallback(() => setOpen(true), [setOpen]))
   const planRegion = `${regionId}-plan`
   const completedRegions = layout.completed.items.map(id => ids.get(id)!)
   if (plan?.length) completedRegions.push(planRegion)

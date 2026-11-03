@@ -11,6 +11,7 @@ const errors: string[] = []
 test.beforeEach(async ({}, testInfo) => {
   await mkdir(testInfo.outputDir, { recursive: true })
   profile = await mkdtemp(join(testInfo.outputDir, 'profile-'))
+  await writeFile(join(profile, 'settings.json'), JSON.stringify({ notifications: false }))
   errors.length = 0
   const env: Record<string, string> = {
     ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
@@ -247,6 +248,108 @@ async function emitEvents(sessionId: string, ...events: TestEvent[]): Promise<vo
     await window.praxis.request('input.submit', { session_id: sessionId, test_events: events })
   }, { sessionId, events })
 }
+
+test('find in chat reveals nested tool output and restores composer focus', async () => {
+  const sessionId = await startControlledTurn('Find nested output')
+  await emitEvents(sessionId,
+    { event: 'ToolCallPrepared', data: { call_id: 'find-read', tool_name: 'read_file', arguments: { relative_path: 'sample.ts' } } },
+    { event: 'ToolFinished', data: { call_id: 'find-read', tool_name: 'read_file', result: { success: true, output: 'Some source code' } } },
+    { event: 'ToolCallPrepared', data: { call_id: 'find-command', tool_name: 'run_command', arguments: { command: 'check-project' } } },
+    { event: 'ToolFinished', data: { call_id: 'find-command', tool_name: 'run_command', result: { success: true, output: 'Build output\n'.repeat(40) + 'hidden-only-needle\n' + 'More output\n'.repeat(40) } } },
+    { event: 'AssistantTextCompleted', data: { text: 'Review finished.\n\n' + Array.from({ length: 36 }, (_, i) => `Result paragraph ${i + 1}: the workspace checks passed.`).join('\n\n') } },
+    { event: 'TurnCompleted' }, { event: 'TurnSettled', data: { status: 'idle' } })
+  const input = page.locator('.composer textarea')
+  const tool = toolMessage('find-command')
+  const group = page.locator('.tool-group').first()
+  const process = page.locator('.process-summary').first()
+  await expect(process).toHaveAttribute('aria-expanded', 'false')
+  await expect(tool).toHaveJSProperty('open', false)
+  await input.focus()
+  await input.press('Control+f')
+  const find = page.getByRole('textbox', { name: 'Find in chat' })
+  await expect(find).toBeFocused()
+  await find.fill('HIDDEN-ONLY-NEEDLE')
+  await expect(page.locator('.find-count')).toHaveText('1 of 1')
+  await find.press('Enter')
+  await expect(process).toHaveAttribute('aria-expanded', 'true')
+  await expect(group).toHaveJSProperty('open', true)
+  await expect(tool).toHaveJSProperty('open', true)
+  await expect.poll(() => page.evaluate(() => {
+    const range = [...CSS.highlights.get('praxis-find-current')!][0] as Range
+    const match = range.getBoundingClientRect()
+    const viewport = document.querySelector('.transcript')!.getBoundingClientRect()
+    const output = range.startContainer.parentElement!.closest('.tool-log')!.getBoundingClientRect()
+    return match.height > 0 && match.top >= Math.max(viewport.top, output.top) && match.bottom <= Math.min(viewport.bottom, output.bottom)
+  })).toBe(true)
+  await page.screenshot({ path: test.info().outputPath('find-expanded-output.png') })
+  await page.keyboard.press('Escape')
+  await expect(find).toHaveCount(0)
+  await expect(input).toBeFocused()
+  await expect(tool).toHaveJSProperty('open', true)
+  expect(await page.evaluate(() => CSS.highlights.has('praxis-find'))).toBe(false)
+  await input.press('Control+f')
+  await find.fill('Result paragraph')
+  await expect(page.locator('.find-count')).toHaveText('1 of 36')
+  await find.press('Enter')
+  await page.keyboard.press('F3')
+  await expect(page.locator('.find-count')).toHaveText('2 of 36')
+  await page.keyboard.press('Shift+F3')
+  await expect(page.locator('.find-count')).toHaveText('1 of 36')
+  await page.keyboard.press('Control+f')
+  expect(await find.evaluate(node => { const input = node as HTMLInputElement; return input.selectionEnd! - input.selectionStart! })).toBe('Result paragraph'.length)
+  await find.fill('Copy output')
+  await expect(page.locator('.find-count')).toHaveText('No results')
+  await page.getByRole('button', { name: 'New chat', exact: true }).click()
+  await expect(find).toBeVisible()
+  await expect(page.locator('.find-count')).toHaveText('No results')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.keyboard.press('Control+f')
+  await expect(find).toHaveCount(0)
+})
+
+test('find in chat includes the visible agent, follows streaming changes and works in compact panels', async () => {
+  const sessionId = await startControlledTurn('Find agent output')
+  await emitEvents(sessionId,
+    { event: 'ModelRequestCompleted', data: { request_number: 1, output_text: 'main-only-marker\n\nshared-search' } },
+    { event: 'ChildAgentStatus', agent_id: 'find-worker', data: { task_summary: 'Find worker', status: 'running' } },
+    { event: 'TurnStarted', agent_id: 'find-worker', data: { task: 'Inspect the workspace.', child_turn_id: 'child-find' } },
+    { event: 'ModelRequestCompleted', agent_id: 'find-worker', data: { request_number: 1, output_text: 'shared-search', child_turn_id: 'child-find' } },
+    { event: 'ToolCallPrepared', agent_id: 'find-worker', data: { call_id: 'child-find-tool', tool_name: 'read_file', arguments: { relative_path: 'src/sample.ts' }, child_turn_id: 'child-find' } },
+    { event: 'ToolFinished', agent_id: 'find-worker', data: { call_id: 'child-find-tool', tool_name: 'read_file', result: { success: true, output: 'agent-only-needle' }, child_turn_id: 'child-find' } })
+  await page.getByRole('button', { name: 'Find worker · Running', exact: true }).click()
+  await page.keyboard.press('Control+f')
+  const find = page.getByRole('textbox', { name: 'Find in chat' })
+  await find.fill('agent-only-needle')
+  await expect(page.locator('.find-count')).toHaveText('1 of 1')
+  await find.press('Enter')
+  await expect(page.locator('.agent-panel .tool-message')).toHaveJSProperty('open', true)
+  await find.fill('shared-search')
+  await expect(page.locator('.find-count')).toHaveText('1 of 2')
+  await find.fill('live-search-marker')
+  await expect(page.locator('.find-count')).toHaveText('No results')
+  await emitEvents(sessionId, { event: 'AssistantTextDelta', agent_id: 'find-worker', data: { request_number: 2, text: 'live-search-marker', child_turn_id: 'child-find' } })
+  await expect(page.locator('.find-count')).toHaveText('1 of 1')
+  await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(800, 640))
+  await expect(page.locator('.agent-panel')).toHaveCSS('position', 'absolute')
+  await expect(page.locator('.conversation-body')).toHaveAttribute('inert', '')
+  await find.fill('main-only-marker')
+  await expect(page.locator('.find-count')).toHaveText('1 of 1')
+  await find.press('Enter')
+  await expect(page.locator('.agent-panel')).toHaveCount(0)
+  await expect(page.getByText('main-only-marker', { exact: true })).toBeInViewport()
+  await page.screenshot({ path: test.info().outputPath('find-compact.png') })
+  await page.keyboard.press('Escape')
+  await page.getByText('main-only-marker', { exact: true }).evaluate(node => {
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    window.getSelection()!.removeAllRanges()
+    window.getSelection()!.addRange(range)
+  })
+  await page.keyboard.press('Control+f')
+  await expect(find).toHaveValue('main-only-marker')
+  await expect(page.locator('.find-count')).toHaveText('1 of 1')
+})
 
 test('assistant metadata stays hidden while collaboration reports remain inside their agent', async () => {
   const sessionId = await startControlledTurn('message presentation')

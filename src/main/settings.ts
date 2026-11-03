@@ -10,6 +10,7 @@ interface SavedSettings {
   model?: string
   baseUrl?: string
   bypassApprovals?: boolean
+  notifications?: boolean
   encryptedApiKey?: string
 }
 
@@ -41,6 +42,7 @@ export class SettingsStore {
       model: process.env.ADA_MODEL || 'auto(free)',
       baseUrl: process.env.ADA_BASE_URL || '',
       bypassApprovals: true,
+      notifications: true,
       apiKeyConfigured: Boolean(process.env.ADA_API_KEY)
     }
     try {
@@ -49,6 +51,7 @@ export class SettingsStore {
         if (typeof data[field] === 'string') this.saved[field] = data[field]
       }
       if (typeof data.bypassApprovals === 'boolean') this.saved.bypassApprovals = data.bypassApprovals
+      if (typeof data.notifications === 'boolean') this.saved.notifications = data.notifications
       if (this.saved.encryptedApiKey && safeStorage.isEncryptionAvailable()) {
         this.key = safeStorage.decryptString(Buffer.from(this.saved.encryptedApiKey, 'base64'))
       }
@@ -68,6 +71,10 @@ export class SettingsStore {
   update(patch: Partial<DesktopSettings> & { apiKey?: string }): DesktopSettings {
     const next = { ...this.saved }
     let nextKey = this.key
+    if (patch.notifications !== undefined) {
+      if (typeof patch.notifications !== 'boolean') throw new Error('Invalid notification preference')
+      next.notifications = patch.notifications
+    }
     if (patch.bypassApprovals !== undefined) {
       if (typeof patch.bypassApprovals !== 'boolean') throw new Error('Invalid approval mode')
       next.bypassApprovals = patch.bypassApprovals

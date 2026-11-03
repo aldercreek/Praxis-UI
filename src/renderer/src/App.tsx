@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CircleAlert, Folder, Fil
 import type { DesktopSettings, SessionSummary } from '../../shared/protocol'
 import { isBusy } from './state'
 import { baseName, errorMessage, usePraxis } from './usePraxis'
-import { DisclosureState } from './Disclosure'
+import { DisclosureRevealContext, DisclosureState } from './Disclosure'
 import { ExecutionBar, ExecutionStatus } from './ExecutionBar'
 import { FileNavigationContext } from './MarkdownContent'
 import { FilePanel, type PanelTarget } from './FilePanel'
@@ -25,6 +25,8 @@ import { composerCommands, type ComposerCommand } from './composerCommands'
 import { ComposerSuggestions, useComposerSuggestions } from './ComposerSuggestions'
 import { ContextMeter } from './ContextMeter'
 import { QuoteContext } from './QuoteContext'
+import { useDrafts } from './useDrafts'
+import { FindBar, type FindBarHandle } from './FindBar'
 import praxisWordmark from '../../../resources/brand/praxis-wordmark.svg'
 
 type Praxis = ReturnType<typeof usePraxis>
@@ -35,13 +37,13 @@ function IconButton({ label, children, onClick, disabled, className = '' }: { la
 
 function SettingsDialog({ praxis, open, close }: { praxis: Praxis; open: boolean; close: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
-  const [draft, setDraft] = useState({ praxisPath: '', pythonPath: '', workspace: '', model: '', baseUrl: '', apiKey: '', bypassApprovals: true })
+  const [draft, setDraft] = useState({ praxisPath: '', pythonPath: '', workspace: '', model: '', baseUrl: '', apiKey: '', bypassApprovals: true, notifications: true })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => {
     if (open) {
       const settings = praxis.info?.settings
-      if (settings) setDraft({ praxisPath: settings.praxisPath, pythonPath: settings.pythonPath, workspace: settings.workspace, model: settings.model, baseUrl: settings.baseUrl, apiKey: '', bypassApprovals: settings.bypassApprovals })
+      if (settings) setDraft({ praxisPath: settings.praxisPath, pythonPath: settings.pythonPath, workspace: settings.workspace, model: settings.model, baseUrl: settings.baseUrl, apiKey: '', bypassApprovals: settings.bypassApprovals, notifications: settings.notifications })
       setError('')
       ref.current?.showModal()
     } else ref.current?.close()
@@ -63,6 +65,7 @@ function SettingsDialog({ praxis, open, close }: { praxis: Praxis; open: boolean
     }
     if (draft.apiKey.trim()) changed.apiKey = draft.apiKey.trim()
     if (draft.bypassApprovals !== praxis.info?.settings.bypassApprovals) changed.bypassApprovals = draft.bypassApprovals
+    if (draft.notifications !== praxis.info?.settings.notifications) changed.notifications = draft.notifications
     try { await praxis.saveSettings(changed); close() } catch (error) { setError(errorMessage(error)) } finally { setSaving(false) }
   }
   return <dialog ref={ref} className="praxis-dialog settings-dialog" onCancel={event => { if (saving) event.preventDefault(); else close() }} onClose={close} aria-labelledby="settings-title">
@@ -74,6 +77,7 @@ function SettingsDialog({ praxis, open, close }: { praxis: Praxis; open: boolean
         <label className="field"><span>Python interpreter</span><div className="path-field"><input value={draft.pythonPath} onChange={event => setDraft({ ...draft, pythonPath: event.target.value })} placeholder="Use Python from Praxis/.venv automatically" /><button type="button" className="button" onClick={() => void choose('python')} disabled={saving || !praxis.api}>Browse</button></div><small>Use a Python environment with Praxis dependencies installed.</small></label>
         <label className="field"><span>Default working directory</span><div className="path-field"><input value={draft.workspace} onChange={event => setDraft({ ...draft, workspace: event.target.value })} placeholder="Project directory for new chats" /><button type="button" className="button" onClick={() => void choose('workspace')} disabled={saving || !praxis.api}>Browse</button></div></label>
         <label className="setting-toggle"><span><span>Bypass approvals</span><small>Run tools without approval prompts in desktop chats.</small></span><input type="checkbox" aria-label="Bypass approvals" checked={draft.bypassApprovals} onChange={event => setDraft({ ...draft, bypassApprovals: event.target.checked })} /></label>
+        <label className="setting-toggle"><span><span>Desktop notifications</span><small>Notify when a task finishes or needs approval while Praxis is in the background.</small></span><input type="checkbox" aria-label="Desktop notifications" checked={draft.notifications} onChange={event => setDraft({ ...draft, notifications: event.target.checked })} /></label>
         <div className="settings-section-title model-section">Model connection</div>
         <label className="field"><span>Model</span><input value={draft.model} onChange={event => setDraft({ ...draft, model: event.target.value })} placeholder="Use Praxis environment settings" /></label>
         <label className="field"><span>API URL</span><input value={draft.baseUrl} onChange={event => setDraft({ ...draft, baseUrl: event.target.value })} placeholder="Use Praxis environment settings" type="url" /></label>
@@ -91,8 +95,7 @@ export default function App() {
   const [mcpOpen, setMcpOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(window.innerWidth <= 640)
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const [quotes, setQuotes] = useState<Record<string, TextQuote | undefined>>({})
+  const { drafts, setDrafts, quotes, setQuotes } = useDrafts(praxis.conversations, praxis.workspace, praxis.listState === 'ready', praxis.removedSessionIds)
   const [panel, setPanel] = useState<{ session: string; target: PanelTarget | { type: 'agent'; key: string } }>()
   const [compactPanel, setCompactPanel] = useState(window.innerWidth <= 1100)
   const [compactAgentPanel, setCompactAgentPanel] = useState(window.innerWidth <= 900)
@@ -111,6 +114,8 @@ export default function App() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerRef = useRef<HTMLFormElement>(null)
+  const findRef = useRef<FindBarHandle>(null)
+  const [findNavigation, setFindNavigation] = useState(0)
   const stickToBottom = useRef(true)
   const downwardIntentUntil = useRef(0)
   const lastScrollTop = useRef(0)
@@ -123,6 +128,7 @@ export default function App() {
     return disclosureSessions.current.get(key)!
   }, [praxis.activeId])
   const draftKey = praxis.active?.clientId || praxis.activeId || `new:${praxis.workspace}`
+  const reveals = useMemo(() => new Map<string, () => void>(), [draftKey])
   const currentDraftKey = useRef(draftKey)
   currentDraftKey.current = draftKey
   const draft = drafts[draftKey] || ''
@@ -134,6 +140,13 @@ export default function App() {
   const quote = quotes[draftKey]
   const panelTarget = panel?.session === draftKey ? panel.target : undefined
   const overlayPanel = panelTarget?.type === 'agent' ? compactAgentPanel : compactPanel
+  const navigateFind = useCallback((range: Range) => {
+    stickToBottom.current = false
+    downwardIntentUntil.current = 0
+    pinnedRow.current = null
+    setFindNavigation(value => value + 1)
+    if (panelTarget && overlayPanel && range.startContainer.parentElement?.closest('.transcript-content')) setPanel(undefined)
+  }, [panelTarget, overlayPanel])
   const agents = useMemo(() => active ? collectAgents(active) : [], [active])
   const collectChanges = useMemo(createChangeCollector, [draftKey])
   const changes = useMemo(() => collectChanges(active?.messages || [], workspace), [collectChanges, active?.messages, workspace])
@@ -230,13 +243,18 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (!document.querySelector('dialog[open]') && !event.isComposing) {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') { event.preventDefault(); event.stopPropagation(); findRef.current?.open(); return }
+        if (event.key === 'F3') { event.preventDefault(); event.stopPropagation(); findRef.current?.next(event.shiftKey); return }
+        if (event.key === 'Escape' && findRef.current?.close()) { event.preventDefault(); event.stopPropagation(); return }
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n' && !event.shiftKey && !settingsOpen && !mcpOpen && !deleteTarget && !document.querySelector('dialog[open]')) {
         event.preventDefault(); praxis.newChat(); requestAnimationFrame(() => textareaRef.current?.focus())
       }
       if ((event.ctrlKey || event.metaKey) && event.key === ',') { event.preventDefault(); setSettingsOpen(true) }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [praxis.newChat, settingsOpen, mcpOpen, deleteTarget])
 
   useEffect(() => {
@@ -293,7 +311,7 @@ export default function App() {
         return { ...previous, [destination]: previous[destination] ? `${content}\n\n${previous[destination]}` : content }
       })
       const destination = result.draftKey || result.sessionId
-      if (selectedQuote && destination && destination !== key) setQuotes(previous => ({ ...previous, [destination]: selectedQuote }))
+      if (selectedQuote && destination && destination !== key) setQuotes(previous => ({ ...previous, ...(previous[key] === selectedQuote ? { [key]: undefined } : {}), [destination]: selectedQuote }))
     } else if (selectedQuote) setQuotes(previous => previous[key] === selectedQuote ? { ...previous, [key]: undefined } : previous)
   }
 
@@ -301,7 +319,7 @@ export default function App() {
   const title = active?.summary?.title || 'New chat'
   const showNavigation = !loading && Boolean(active?.messages.some(message => message.role === 'user')) && !(panelTarget && overlayPanel)
   const quoteActions = useMemo(() => ({ addQuote, disabled: praxis.sending }), [addQuote, praxis.sending])
-  return <ApprovalProvider approvals={active?.approvals || []} onRespond={praxis.approve}><QuoteContext.Provider value={quoteActions}><div className={`app ${sidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}>
+  return <ApprovalProvider approvals={active?.approvals || []} onRespond={praxis.approve}><QuoteContext.Provider value={quoteActions}><DisclosureRevealContext.Provider value={reveals}><div className={`app ${sidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}>
     <Sidebar praxis={praxis} collapsed={sidebarCollapsed} toggleSidebar={() => setSidebarCollapsed(value => !value)} openSettings={() => setSettingsOpen(true)} onDelete={setDeleteTarget} />
     <DeleteChatDialog session={deleteTarget ? praxis.conversations[deleteTarget.id]?.summary || Object.values(praxis.conversations).find(conversation => conversation.clientId === deleteTarget.id)?.summary || deleteTarget : null} close={() => setDeleteTarget(null)} confirm={id => { void praxis.deleteSession(id) }} />
     <main className="main">
@@ -315,6 +333,7 @@ export default function App() {
       {(connectionProblem || praxis.configured === false) && <div className="connection-banner" role="status"><CircleAlert size={16} /><span>{connectionProblem ? praxis.connection.message || 'Unable to connect to local Praxis. Check your runtime settings.' : 'No model API key configured. Add one in Settings or the Praxis environment.'}</span><button type="button" onClick={() => setSettingsOpen(true)}>Open settings</button>{connectionProblem && praxis.api && <button type="button" onClick={() => { void praxis.api.restart().catch(error => praxis.setError(errorMessage(error))) }}>Reconnect</button>}</div>}
 
       <div ref={workspaceRef} className={`workspace-content ${panelTarget ? 'has-panel' : ''} ${showNavigation ? 'has-navigation' : ''}`}>
+      <FindBar ref={findRef} scope={workspaceRef} sessionKey={draftKey} contentKey={`${loading}:${panelTarget?.type === 'agent' ? panelTarget.key : ''}`} onNavigate={navigateFind} />
       <div className={`conversation-body ${empty ? 'is-new' : ''}`} inert={Boolean(panelTarget && overlayPanel)}>
       <div className="transcript" ref={scrollRef} onScroll={() => {
         const container = scrollRef.current
@@ -396,7 +415,7 @@ export default function App() {
       </div>
       {panelTarget?.type === 'agent' && <DisclosureState.Provider value={disclosures}><FileNavigationContext.Provider value={fileNavigation}>
         <AgentPanel key={`agents:${draftKey}`} agents={agents} selected={panelTarget.key} onSelect={openAgent} onClose={closePanel} compact={compactAgentPanel}
-          width={agentPanelSize} minWidth={agentPanelMin} maxWidth={agentPanelMax} onResize={setAgentPanelWidth} />
+          width={agentPanelSize} minWidth={agentPanelMin} maxWidth={agentPanelMax} onResize={setAgentPanelWidth} findNavigation={findNavigation} />
       </FileNavigationContext.Provider></DisclosureState.Provider>}
       {panelTarget && panelTarget.type !== 'agent' && <FilePanel key={`files:${draftKey}`} target={panelTarget} workspace={workspace} turns={changes} activeTurnId={active?.activeTurnId} onTarget={openPanel} onClose={closePanel} />}
       </div>
@@ -404,5 +423,5 @@ export default function App() {
     {!settingsOpen && !mcpOpen && !praxis.sending && !(panelTarget && overlayPanel) && <QuoteSelection rootRef={scrollRef} sessionKey={draftKey} onQuote={addQuote} />}
     <SettingsDialog praxis={praxis} open={settingsOpen} close={() => setSettingsOpen(false)} />
     {mcpOpen && <McpStatusDialog close={() => { setMcpOpen(false); requestAnimationFrame(() => textareaRef.current?.focus()) }} />}
-  </div></QuoteContext.Provider></ApprovalProvider>
+  </div></DisclosureRevealContext.Provider></QuoteContext.Provider></ApprovalProvider>
 }

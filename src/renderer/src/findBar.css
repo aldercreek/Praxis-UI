@@ -1,0 +1,7 @@
+.find-bar { position: absolute; top: 8px; right: 16px; z-index: 30; display: flex; align-items: center; gap: 2px; width: 320px; max-width: calc(100% - 32px); padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-card); color: var(--ink); font: 400 13px/22px var(--font-ui); }
+.find-bar input { width: 0; min-width: 50px; flex: 1; padding: 3px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; outline: none; }
+.find-bar input:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.find-bar .icon-button { width: 26px; height: 28px; }
+.find-count { flex: none; color: var(--muted); font-size: var(--text-xs); white-space: nowrap; padding: 0 4px; font-variant-numeric: tabular-nums; }
+::highlight(praxis-find) { background: oklch(0.93 0.09 95); color: var(--ink); }
+::highlight(praxis-find-current) { background: oklch(0.85 0.15 75); color: var(--ink); }

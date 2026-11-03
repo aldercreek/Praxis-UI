@@ -14,6 +14,17 @@ beforeEach(() => { directory = mkdtempSync(join(tmpdir(), 'praxis-settings-')); 
 afterEach(() => rmSync(directory, { recursive: true, force: true }))
 
 describe('desktop approval preference', () => {
+  it('defaults notifications to enabled and persists changes independently', () => {
+    expect(store().get().notifications).toBe(true)
+    store().update({ notifications: false })
+    const reloaded = store()
+    expect(reloaded.get().notifications).toBe(false)
+    reloaded.update({ model: 'another-model' })
+    expect(store().get().notifications).toBe(false)
+    expect(() => reloaded.update({ notifications: 'false' } as unknown as Partial<DesktopSettings>)).toThrow('Invalid notification preference')
+    expect(store().get().notifications).toBe(false)
+  })
+
   it('defaults new and existing profiles without an approval preference to bypass', () => {
     expect(store().get().bypassApprovals).toBe(true)
     writeFileSync(file, JSON.stringify({ model: 'existing-model' }))

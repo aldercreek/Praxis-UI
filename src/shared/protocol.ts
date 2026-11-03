@@ -72,6 +72,7 @@ export interface DesktopSettings {
   model: string
   baseUrl: string
   bypassApprovals: boolean
+  notifications: boolean
   apiKeyConfigured: boolean
 }
 
@@ -106,7 +107,17 @@ export interface FileActionResult {
   simulated: boolean
 }
 
+export interface DesktopNotification {
+  key: string
+  sessionId: string
+  kind: 'completed' | 'failed' | 'approval'
+  title: string
+  body: string
+}
+
 export interface DesktopAPI {
+  notify(payload: DesktopNotification): void
+  onOpenSession(listener: (sessionId: string) => void): () => void
   acknowledge(sessionId: string, sequence: number): void
   getInfo(): Promise<DesktopInfo>
   request<T = Record<string, unknown>>(method: string, params?: Record<string, unknown>): Promise<T>
