@@ -109,6 +109,13 @@ export function agentStatusLabel(task: AgentTask): string {
   return { queued: 'Queued', running: 'Running', returned: 'Returned', closing: 'Stopping', closed: 'Closed', failed: 'Failed', stopped: 'Stopped', unknown: 'Not running' }[task.status]
 }
 
+export function agentInstructionLabel(message: DisplayMessage, agents: AgentTask[]): string {
+  if (!message.sender_id) return 'Task'
+  if (message.sender_id === 'parent') return 'From main agent'
+  const sender = agents.find(agent => agent.id === message.sender_id && agent.turnId === message.turn_id)
+  return `From ${sender?.title || message.sender_id}`
+}
+
 const coordinationTools = new Set(['spawn_agent', 'send_messages', 'wait_agents', 'close_agent'])
 export function mainAgentMessages(conversation: Conversation): DisplayMessage[] {
   const agents = collectAgents(conversation)
@@ -123,6 +130,11 @@ export function mainAgentMessages(conversation: Conversation): DisplayMessage[] 
     let result = message.structured_output
     if (!result || !Object.keys(result).length) {
       try { result = JSON.parse(message.content) } catch { result = undefined }
+    }
+    // Unfiltered waits are represented by the dock. Retain user interruptions,
+    // timeouts and unfamiliar outcomes so they remain inspectable in the chat.
+    if (message.tool_name === 'wait_agents' && !Array.isArray(message.arguments?.agent_ids)) {
+      return !['running', 'pending'].includes(message.status || '') && !['message', 'team_changed'].includes(String(result?.reason))
     }
     if (message.tool_name === 'send_messages' && ['complete', 'completed'].includes(message.status || '')) {
       if (!Array.isArray(result?.results) || !result.results.length

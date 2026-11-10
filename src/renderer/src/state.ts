@@ -158,6 +158,13 @@ function addUserMessage(messages: DisplayMessage[], text: string, event: PraxisE
   return [...messages, { id: event.event === 'TurnStarted' ? `user:${event.turn_id}:${agentKey(event)}:${executionKey(event)}` : `user:${event.turn_id}:${event.sequence}:${messages.length}`, role: 'user', content: text, turn_id: event.turn_id, agent_id: event.agent_id }]
 }
 
+function childInstructions(raw: string, id: string, event: PraxisEvent): DisplayMessage[] {
+  const common = { turn_id: event.turn_id, agent_id: event.agent_id, child_turn_id: textOf(event.data.child_turn_id) || undefined, source: 'agent' as const, role: 'user' as const }
+  const reports = readAgentReports(raw)
+  return reports ? reports.map((report, index) => ({ ...common, id: `${id}:report:${index}`, content: report.content,
+    sender_id: report.sender_id, recipient_id: report.recipient_id })) : raw ? [{ ...common, id, content: raw }] : []
+}
+
 export function applyEvent(current: Conversation, event: PraxisEvent): Conversation {
   if (event.sequence && event.sequence <= current.sequence) return current
   const data = event.data
@@ -175,10 +182,7 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
     case 'TurnStarted':
       if (child) {
         const raw = textOf(data.task)
-        const reports = readAgentReports(raw)
-        const content = reports ? reports.map(report => report.content).join('\n\n') : raw
-        if (content) next.messages = [...current.messages, { id: `task:${event.turn_id}:${event.agent_id}:${executionKey(event)}`, role: 'user', content,
-          turn_id: event.turn_id, agent_id: event.agent_id, child_turn_id: textOf(data.child_turn_id) || undefined, source: 'agent' }]
+        next.messages = [...current.messages, ...childInstructions(raw, `task:${event.turn_id}:${event.agent_id}:${executionKey(event)}`, event)]
       } else {
         if (next.summary) next.summary = { ...next.summary, status: 'running' }
         next.messages = addUserMessage(current.messages, textOf(data.task), event)
@@ -280,10 +284,7 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
           const value = objectOf(item)
           if (value.role === 'developer') return []
           const raw = Array.isArray(value.content) ? value.content.map(part => textOf(objectOf(part).text)).join('\n') : textOf(value.content)
-          const reports = readAgentReports(raw)
-          const content = reports ? reports.map(report => report.content).join('\n\n') : raw
-          return content ? [{ id: `task:${event.turn_id}:${event.agent_id}:${event.sequence}:${index}`, role: 'user' as const, content,
-            turn_id: event.turn_id, agent_id: event.agent_id, child_turn_id: textOf(data.child_turn_id) || undefined, source: 'agent' }] : []
+          return childInstructions(raw, `task:${event.turn_id}:${event.agent_id}:${event.sequence}:${index}`, event)
         })
         next.messages = [...current.messages, ...instructions]
       } else if (Array.isArray(data.items)) {
@@ -364,8 +365,9 @@ export function applySnapshot(snapshot: SessionSnapshot, buffered: PraxisEvent[]
     for (const [index, report] of reports.entries()) {
       const agent = isChildAgent(message.agent_id) ? message.agent_id : report.recipient_id === 'parent' ? report.sender_id : undefined
       if (!agent || !isChildAgent(agent)) continue
-      if (snapshot.messages.some(other => other.agent_id === agent && other.turn_id === message.turn_id && other.content === report.content)) continue
-      restored.push({ ...message, id: `${message.id}:report:${index}`, role: report.recipient_id === 'parent' ? 'assistant' : 'user', agent_id: agent, content: report.content, source: 'agent' })
+      if (report.recipient_id === 'parent' && snapshot.messages.some(other => other.agent_id === agent && other.turn_id === message.turn_id && other.content === report.content)) continue
+      restored.push({ ...message, id: `${message.id}:report:${index}`, role: report.recipient_id === 'parent' ? 'assistant' : 'user', agent_id: agent, content: report.content,
+        source: 'agent', sender_id: report.sender_id, recipient_id: report.recipient_id })
     }
   }
   const history = restored.map(message => {

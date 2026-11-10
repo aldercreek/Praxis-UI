@@ -1,5 +1,5 @@
 import { useContext, useLayoutEffect, useRef } from 'react'
-import { Blocks, CheckCircle2, ChevronRight, FileText, FileCode2, FolderOpen, Image, Link2, ListChecks, Pencil, Search, Terminal } from './icons'
+import { Blocks, CheckCircle2, ChevronRight, FileText, FileCode2, FolderOpen, GitBranch, Image, Link2, ListChecks, Pencil, Search, Terminal } from './icons'
 import { Disclosure, useDisclosure } from './Disclosure'
 import { FileNavigationContext } from './MarkdownContent'
 import { fileChangePreviewPath } from './changeSummary'
@@ -15,7 +15,7 @@ import { PythonExecution } from './PythonExecution'
 
 // While an action runs its semantic icon stays in place and pulses gently.
 export function ToolIcon({ kind, loading = false }: { kind: ToolIconKind; loading?: boolean }) {
-  const Icon = { read: FileText, folder: FolderOpen, code: FileCode2, search: Search, edit: Pencil, command: Terminal, image: Image, connection: Link2, plan: ListChecks, tool: Blocks }[kind]
+  const Icon = { read: FileText, folder: FolderOpen, code: FileCode2, search: Search, edit: Pencil, command: Terminal, image: Image, connection: Link2, plan: ListChecks, agents: GitBranch, tool: Blocks }[kind]
   return <Icon size={14} className={`tool-icon${loading ? ' tool-icon-loading' : ''}`} aria-hidden="true" />
 }
 

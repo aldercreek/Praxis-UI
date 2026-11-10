@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, GitBranch, X } from './icons'
-import { agentStatusLabel, type AgentTask } from './agentPresentation'
+import { agentInstructionLabel, agentStatusLabel, type AgentTask } from './agentPresentation'
 import { AgentMark } from './AgentDock'
 import { Message } from './Transcript'
 import { MarkdownContent } from './MarkdownContent'
@@ -110,7 +110,7 @@ export function AgentPanel({ agents, selected, onSelect, onClose, compact, width
     }}>
       <ReadingAnchor container={scroll} following={following} pinned={pinned}>
       {items.map(message => message.role === 'tool-group' ? <ToolActivity key={message.id} group={message} isCurrent={message.id === currentGroupId} />
-        : message.role === 'user' ? <div className="agent-instruction" key={message.id}><div className="agent-section-label">Task</div><MarkdownContent content={message.content} allowRelativeFiles={false} decorateFiles={false} /></div>
+        : message.role === 'user' ? <div className="agent-instruction" key={message.id}><div className="agent-section-label" title={message.sender_id}>{agentInstructionLabel(message, agents)}</div><MarkdownContent content={message.content} allowRelativeFiles={false} decorateFiles={false} /></div>
         : <Message key={message.id} message={message} hideAgentLabel showActions={message.id === lastResponse && message.status !== 'streaming'} />)}
       {!task.messages.length && <p className="agent-empty">{task.status === 'queued' ? 'Waiting to start.' : task.status === 'running' ? 'Waiting for the first update.' : 'No activity was recorded for this agent.'}</p>}
       </ReadingAnchor>

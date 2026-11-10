@@ -164,6 +164,89 @@ test('real workers render once in the dock and restore their activity after reop
   await expect(page.locator('.agent-dock')).toHaveCount(0)
 })
 
+test('peer messages keep their source after an agent is replaced and the chat is reloaded', async ({}, testInfo) => {
+  await writeFile(join(profile, 'desktop-workspace', 'notes.md'), '# Peer exchange\nRecorded checks passed.\n')
+  await page.locator('textarea').fill('agent collaboration example')
+  await page.locator('textarea').press('Enter')
+  await expect(page.locator('.transcript')).toContainText('Peer exchange and replacement verification complete.', { timeout: 20_000 })
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+  await expect(page.locator('.agent-dock-item')).toHaveCount(3)
+  await expect(page.locator('.transcript')).not.toContainText('recorded checks passed.')
+  const { sessions } = await request<{ sessions: SessionSummary[] }>('/api/sessions')
+  const session = sessions.find(item => item.title === 'agent collaboration example')!
+  const snapshot = await request<SessionSnapshot>(`/api/sessions/${session.id}/snapshot`)
+  const peerMessages = snapshot.messages.filter(message => message.role === 'user' && message.sender_id?.startsWith('agent-'))
+  expect(peerMessages).toHaveLength(2)
+  expect(new Set(peerMessages.map(message => message.sender_id)).size).toBe(2)
+  expect(snapshot.messages.filter(message => message.role === 'tool' && message.status === 'failed')).toEqual([])
+  const waits = snapshot.messages.filter(message => message.tool_name === 'wait_agents')
+  expect(waits.length).toBeGreaterThan(0)
+  expect(waits.every(message => !Object.hasOwn(message.arguments || {}, 'agent_ids'))).toBe(true)
+  const openQueue = async () => {
+    await page.locator('.agent-dock-item').filter({ hasText: 'Queue review' }).click()
+    const panel = page.getByRole('complementary', { name: 'Agent details' })
+    await expect(panel.locator('.agent-section-label')).toHaveText(['From main agent', 'From History review'])
+    await expect(panel.locator('.agent-instruction').last()).toContainText('History review findings: recorded checks passed.')
+    await expect(panel).not.toContainText('source-labelled task data')
+    return panel
+  }
+  await openQueue()
+  await screenshot(testInfo.outputPath('peer-messages-live.png'))
+  await page.getByRole('button', { name: 'Close agent details' }).click()
+  await page.reload()
+  await page.locator('.session-item').filter({ hasText: session.title }).click()
+  const panel = await openQueue()
+  await expect(panel.locator('.agent-meta')).not.toContainText('Running')
+  const size = await application!.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    const size = window.getContentSize()
+    window.setMinimumSize(480, 400)
+    window.setContentSize(600, 640)
+    return size
+  })
+  await expect(panel.getByRole('button', { name: 'Close agent details' })).toBeInViewport()
+  await expect(panel.locator('.agent-section-label').last()).toBeInViewport()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+  const labelStyle = await panel.locator('.agent-section-label').last().evaluate(element => {
+    const style = getComputedStyle(element)
+    return { size: style.fontSize, lineHeight: style.lineHeight, color: style.color }
+  })
+  expect(labelStyle.size).toBe('12px')
+  expect(labelStyle.lineHeight).toBe('20px')
+  await writeFile(testInfo.outputPath('peer-message-metrics.json'), JSON.stringify(labelStyle, null, 2))
+  await screenshot(testInfo.outputPath('peer-messages-restored-compact.png'))
+  await application!.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(size[0], size[1]), size)
+})
+
+test('user input wakes the real agent wait and is processed in the same turn', async ({}, testInfo) => {
+  await page.locator('textarea').fill('agent input wait example')
+  await page.locator('textarea').press('Enter')
+  await expect(page.locator('.transcript').getByText('Waiting for agent updates', { exact: true })).toBeVisible()
+  const { sessions } = await request<{ sessions: SessionSummary[] }>('/api/sessions')
+  const session = sessions.find(item => item.title === 'agent input wait example')!
+  const waiting = await request<SessionSnapshot>(`/api/sessions/${session.id}/snapshot`)
+  const turnId = waiting.session.active_turn!.id
+  expect(waiting.messages.find(message => message.tool_name === 'wait_agents')?.status).toBe('running')
+  await screenshot(testInfo.outputPath('agent-wait-running.png'))
+  await page.locator('textarea').fill('Use this updated requirement now.')
+  await page.locator('textarea').press('Enter')
+  await expect(page.locator('.transcript')).toContainText('User input received during agent wait.')
+  await expect(page.locator('.user-content')).toHaveText(['agent input wait example', 'Use this updated requirement now.'])
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+  await expect(page.locator('.transcript .process-completed')).toHaveAttribute('aria-expanded', 'false')
+  await page.locator('.transcript .process-completed').click()
+  await expect(page.locator('.transcript').getByText('New user input received', { exact: true })).toBeVisible()
+  const finished = await request<SessionSnapshot>(`/api/sessions/${session.id}/snapshot`)
+  expect(finished.session.latest_turn?.id).toBe(turnId)
+  expect(finished.pending_inputs).toEqual([])
+  expect(JSON.parse(finished.messages.find(message => message.tool_name === 'wait_agents')!.content).reason).toBe('user_input')
+  await screenshot(testInfo.outputPath('agent-wait-user-input.png'))
+  await page.reload()
+  await page.locator('.session-item').filter({ hasText: session.title }).click()
+  await page.locator('.transcript .process-completed').click()
+  await expect(page.locator('.transcript').getByText('New user input received', { exact: true })).toBeVisible()
+})
+
 test('composer queue supports editing, ordering, deleting, pausing and sending without duplicate bubbles', async ({}, testInfo) => {
   test.setTimeout(90_000)
   const send = async (text: string) => {

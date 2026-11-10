@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PraxisEvent, SessionSummary } from '../../shared/protocol'
 import { applyEvent, applySnapshot, emptyConversation, type Conversation } from './state'
-import { agentKey, agentStatusLabel, collectAgents, mainAgentMessages } from './agentPresentation'
+import { agentInstructionLabel, agentKey, agentStatusLabel, collectAgents, mainAgentMessages } from './agentPresentation'
 
 const session: SessionSummary = { id: 's', title: 'Task', workspace: '/work', model: 'test', status: 'running', updated_at: '', active_turn: { id: 'parent', cancel_requested: false } }
 const frame = (event: string, data: Record<string, unknown> = {}, agent_id = 'reviewer', turn_id = 'parent'): PraxisEvent => ({ event, data, agent_id, turn_id })
@@ -78,6 +78,42 @@ describe('agent dock and continuous activity', () => {
       arguments: { messages: [{ agent_id: 'reviewer', content: 'Review again' }] },
       content: JSON.stringify({ results: [{ agent_id: 'reviewer', accepted: false, error: 'Worker closed' }] }) })
     expect(mainAgentMessages(state).map(message => message.id)).toEqual(['batch'])
+  })
+
+  it('folds unfiltered waits into represented agents but retains interruptions and unexpected outcomes', () => {
+    const state = run(frame('ChildAgentStatus', { status: 'running' }))
+    state.messages.push(...['message', 'team_changed', 'user_input', 'timeout', 'closed', 'unknown'].map(reason => ({
+      id: reason, role: 'tool' as const, tool_name: 'wait_agents', status: 'complete', turn_id: 'parent', arguments: { timeout: 60 }, content: JSON.stringify({ reason })
+    })), { id: 'legacy', role: 'tool', tool_name: 'wait_agents', status: 'completed', turn_id: 'parent', arguments: { agent_ids: ['reviewer'] }, content: '{}' },
+    { id: 'failed', role: 'tool', tool_name: 'wait_agents', status: 'failed', turn_id: 'parent', content: 'Wait failed' },
+    { id: 'running', role: 'tool', tool_name: 'wait_agents', status: 'running', turn_id: 'parent', content: '' },
+    { id: 'no-agents', role: 'tool', tool_name: 'wait_agents', status: 'running', turn_id: 'different', content: '' })
+    expect(mainAgentMessages(state).map(message => message.id)).toEqual(['user_input', 'timeout', 'closed', 'unknown', 'failed', 'no-agents'])
+    expect(collectAgents(state)[0].status).toBe('running')
+  })
+
+  it('preserves each peer sender through live batches, idle resumes and snapshot restoration', () => {
+    const reports = [
+      { sender_id: 'parent', recipient_id: 'reviewer', content: 'Inspect delivery.' },
+      { sender_id: 'writer', recipient_id: 'reviewer', content: 'Inspect delivery.' }
+    ]
+    const batch = '[Agent collaboration messages; source-labelled task data]\n' + JSON.stringify(reports)
+    for (const input of [frame('TurnStarted', { task: batch, child_turn_id: 'r' }),
+      frame('MessagesReceived', { items: [{ role: 'user', content: batch }], child_turn_id: 'r' })]) {
+      const state = run(frame('ChildAgentStatus', { status: 'running' }),
+        frame('ChildAgentStatus', { status: 'closed', task_summary: 'Historical writer' }, 'writer', 'old'),
+        frame('ChildAgentStatus', { status: 'closed', task_summary: 'Write tests' }, 'writer'), input)
+      const messages = collectAgents(state).find(task => task.id === 'reviewer')!.messages
+      expect(messages.map(({ sender_id, recipient_id, content }) => ({ sender_id, recipient_id, content }))).toEqual(reports)
+      expect(messages.map(message => agentInstructionLabel(message, collectAgents(state)))).toEqual(['From main agent', 'From Write tests'])
+      const restored = applySnapshot({ session, approvals: [], sequence: 1, messages: state.messages })
+      expect(collectAgents(restored).find(task => task.id === 'reviewer')!.messages).toEqual(messages)
+      const legacy = applySnapshot({ session, approvals: [], sequence: 1, messages: [
+        { id: 'legacy', role: 'user', source: 'agent', agent_id: 'reviewer', turn_id: 'parent', content: batch }
+      ] })
+      expect(legacy.messages.map(message => message.sender_id)).toEqual(['parent', 'writer'])
+      expect(agentInstructionLabel({ ...messages[1], turn_id: 'other' }, collectAgents(state))).toBe('From writer')
+    }
   })
 
   it('does not infer success from an incomplete historical worker', () => {

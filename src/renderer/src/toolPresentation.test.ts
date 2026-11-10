@@ -8,6 +8,28 @@ const read = (id: string, patch: Partial<DisplayMessage> = {}): DisplayMessage =
 })
 
 describe('tool summaries', () => {
+  it('describes input waits without treating a wake as completion of the team', () => {
+    const wait = read('wait', { tool_name: 'wait_agents', arguments: { timeout: 60 }, content: '' })
+    expect(presentTool({ ...wait, status: 'running' })).toMatchObject({ summary: 'Waiting for agent updates', icon: 'agents', running: true })
+    for (const [reason, summary] of Object.entries({ message: 'Agent message received', team_changed: 'Agent team updated',
+      user_input: 'New user input received', timeout: 'Wait timed out', closed: 'Agent team closed' })) {
+      expect(presentTool({ ...wait, content: JSON.stringify({ reason }) })).toMatchObject({ summary, caption: summary })
+      expect(presentTool({ ...wait, structured_output: { reason } }).summary).toBe(summary)
+    }
+    for (const content of ['{"agents":[{"status":"idle"}]}', 'null', '{}', 'not JSON']) {
+      expect(presentTool({ ...wait, content }).summary).toBe('Finished waiting for agent updates')
+    }
+    expect(presentTool({ ...wait, status: 'failed' }).summary).toBe('Failed to wait for agent updates')
+    expect(presentTool({ ...wait, status: 'cancelled' }).summary).toBe('Stopped: Wait for agent updates')
+  })
+
+  it('names the recipient of a peer message and retains the main-agent default', () => {
+    const message = read('peer', { tool_name: 'send_message', arguments: { target: 'reviewer', content: 'Finding' } })
+    expect(presentTool(message)).toMatchObject({ summary: 'Sent message to reviewer', fullTarget: 'reviewer', icon: 'agents' })
+    expect(presentTool({ ...message, arguments: { target: 'parent' } }).summary).toBe('Sent message to main agent')
+    expect(presentTool({ ...message, arguments: {} }).summary).toBe('Sent message to main agent')
+  })
+
   it('shows Praxis relative paths, including Windows paths and requested line ranges', () => {
     const tool = presentTool(read('read', { arguments: { relative_path: 'src\\praxis_agent\\agent.py', start_line: 10, end_line: 40 } }))
     expect(tool).toMatchObject({ summary: 'Read src/praxis_agent/agent.py:10–40', kind: 'read', fullTarget: 'src/praxis_agent/agent.py:10–40' })

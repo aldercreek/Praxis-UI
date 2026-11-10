@@ -31,6 +31,8 @@ export interface TranscriptMessage {
   arguments?: Record<string, unknown>
   structured_output?: Record<string, unknown>
   source?: 'user' | 'agent'
+  sender_id?: string
+  recipient_id?: string
 }
 
 export interface Approval {

@@ -2,7 +2,7 @@ import { isChildAgent, textOf, toolStatus, type DisplayMessage } from './state'
 import { assistantDisplayText } from './messagePresentation'
 
 export type ToolKind = 'read' | 'search' | 'edit' | 'command' | 'image' | 'tool'
-export type ToolIconKind = ToolKind | 'folder' | 'code' | 'connection' | 'plan'
+export type ToolIconKind = ToolKind | 'folder' | 'code' | 'connection' | 'plan' | 'agents'
 
 export function toolFileLabel(path: string): string {
   const normalized = path.replaceAll('\\', '/')
@@ -22,7 +22,26 @@ const actions: Record<string, { verb: string; running: string; completed: string
   wait_command: { verb: 'Read', running: 'Reading', completed: 'Read', object: 'command output', kind: 'command' },
   view_image: { verb: 'View image', running: 'Viewing image', completed: 'Viewed image', object: '', kind: 'image' },
   read_image: { verb: 'View image', running: 'Viewing image', completed: 'Viewed image', object: '', kind: 'image' },
-  update_plan: { verb: 'Update plan', running: 'Updating plan', completed: 'Updated plan', object: '', kind: 'tool' }
+  update_plan: { verb: 'Update plan', running: 'Updating plan', completed: 'Updated plan', object: '', kind: 'tool' },
+  wait_agents: { verb: 'Wait for', running: 'Waiting for', completed: 'Finished waiting for', object: 'agent updates', kind: 'tool' },
+  send_message: { verb: 'Send message to', running: 'Sending message to', completed: 'Sent message to', object: 'main agent', kind: 'tool' },
+  send_messages: { verb: 'Send messages to', running: 'Sending messages to', completed: 'Sent messages to', object: 'agents', kind: 'tool' },
+  spawn_agent: { verb: 'Create agent', running: 'Creating agent', completed: 'Created agent', object: '', kind: 'tool' },
+  close_agent: { verb: 'Close agent', running: 'Closing agent', completed: 'Requested closure of agent', object: '', kind: 'tool' }
+}
+
+const coordinationTools = new Set(['wait_agents', 'send_message', 'send_messages', 'spawn_agent', 'close_agent'])
+const waitOutcomes: Record<string, string> = {
+  message: 'Agent message received', team_changed: 'Agent team updated', user_input: 'New user input received',
+  timeout: 'Wait timed out', closed: 'Agent team closed'
+}
+function waitOutcome(message: DisplayMessage): string | undefined {
+  let result = message.structured_output
+  if (!result || !Object.keys(result).length) {
+    try { result = JSON.parse(message.content) } catch { return }
+  }
+  const reason = result?.reason
+  return typeof reason === 'string' && Object.hasOwn(waitOutcomes, reason) ? waitOutcomes[reason] : undefined
 }
 
 const statusLabels = {
@@ -60,13 +79,20 @@ export function presentTool(message: DisplayMessage) {
   const description = name === 'run_command' ? textOf(argument.description).trim().replace(/\s+/g, ' ') : ''
   const path = textOf(argument.relative_path ?? argument.path ?? argument.file_path ?? message.file_change?.path)
   const icon: ToolIconKind = name === 'list_files' ? 'folder' : name === 'update_plan' ? 'plan'
+    : coordinationTools.has(name) ? 'agents'
     : name.startsWith('mcp_') ? 'connection' : name === 'run_code' ? 'code'
     : action?.kind === 'read' && /\.(?:[cm]?[jt]sx?|py|java|kt|go|rs|c|cpp|h|hpp|cs|rb|php|swift|sh|ps1|sql|vue|svelte)$/i.test(path) ? 'code'
     : action?.kind || 'tool'
   let target = ''
   let fullTarget = ''
 
-  if (name === 'run_command') {
+  if (name === 'send_message') {
+    target = fullTarget = !argument.target || argument.target === 'parent' ? 'main agent' : textOf(argument.target)
+  } else if (name === 'spawn_agent') {
+    target = fullTarget = textOf(argument.task_summary)
+  } else if (name === 'close_agent') {
+    target = fullTarget = textOf(argument.agent_id)
+  } else if (name === 'run_command') {
     fullTarget = command
     target = script ? 'script' : commandText
   } else if (name === 'search_text' || name === 'find_files') {
@@ -90,7 +116,7 @@ export function presentTool(message: DisplayMessage) {
   const subject = action ? target || action.object : [displayName, target].filter(Boolean).join(' · ')
   const suffix = subject ? ` ${subject}` : ''
   const operation = description || `${verb}${suffix}`
-  const summary = status === 'Complete' ? description || `${action?.completed || 'Called'}${suffix}`
+  const summary = status === 'Complete' ? (name === 'wait_agents' ? waitOutcome(message) : undefined) || description || `${action?.completed || 'Called'}${suffix}`
     : status === 'Running' ? description ? `Running: ${description}` : `${action?.running || 'Calling'}${suffix}`
     : status === 'Failed' ? description ? `Failed: ${description}` : `Failed to ${verb.toLowerCase()}${suffix}`
     : status === 'Denied' ? `Rejected: ${operation}`
@@ -113,7 +139,7 @@ export interface ToolGroup {
 }
 
 type ToolEntry = { message: DisplayMessage; tool: ReturnType<typeof presentTool> }
-type ActivityCategory = 'files' | 'edits' | 'commands' | 'code' | 'images' | 'discovery' | 'enabled' | 'plan' | 'tools'
+type ActivityCategory = 'files' | 'edits' | 'commands' | 'code' | 'images' | 'discovery' | 'enabled' | 'plan' | 'agents' | 'tools'
 
 function activityCategory({ tool }: ToolEntry): ActivityCategory {
   if (['read_file', 'list_files', 'find_files', 'search_text'].includes(tool.name)) return 'files'
@@ -121,11 +147,12 @@ function activityCategory({ tool }: ToolEntry): ActivityCategory {
   if (tool.name === 'search_tools') return 'discovery'
   if (tool.name === 'activate_tools') return 'enabled'
   if (tool.name === 'update_plan') return 'plan'
+  if (coordinationTools.has(tool.name)) return 'agents'
   return tool.kind === 'edit' ? 'edits' : tool.kind === 'command' ? 'commands' : tool.kind === 'image' ? 'images' : 'tools'
 }
 
 function activitySummary(entries: ToolEntry[]) {
-  const categories: ActivityCategory[] = ['files', 'edits', 'commands', 'code', 'images', 'discovery', 'enabled', 'plan', 'tools']
+  const categories: ActivityCategory[] = ['files', 'edits', 'commands', 'code', 'images', 'discovery', 'enabled', 'plan', 'agents', 'tools']
   const complete = entries.every(entry => entry.tool.status === 'Complete')
   const parts = categories.flatMap(category => {
     const items = entries.filter(entry => activityCategory(entry) === category)
@@ -138,13 +165,13 @@ function activitySummary(entries: ToolEntry[]) {
       edits: plural ? 'Edited files' : 'Edited a file', commands: onlyCommandOutput ? 'Read command output'
         : items.filter(entry => entry.tool.name === 'run_command').length === 1 ? 'Ran a command' : 'Ran commands',
       code: 'Ran code', images: plural ? 'Viewed images' : 'Viewed an image', discovery: 'Searched tools',
-      enabled: 'Enabled tools', plan: 'Updated plan', tools: plural ? 'Called tools' : 'Called a tool'
+      enabled: 'Enabled tools', plan: 'Updated plan', agents: 'Coordinated agents', tools: plural ? 'Called tools' : 'Called a tool'
     }[category] : {
       files: allReads ? 'File reads' : 'File exploration', edits: 'File changes', commands: 'Commands', code: 'Code execution',
-      images: 'Images', discovery: 'Tool searches', enabled: 'Tool setup', plan: 'Plan updates', tools: 'Tool calls'
+      images: 'Images', discovery: 'Tool searches', enabled: 'Tool setup', plan: 'Plan updates', agents: 'Agent coordination', tools: 'Tool calls'
     }[category]
     const icon: ToolIconKind = { files: allReads ? 'read' : 'search', edits: 'edit', commands: 'command', code: 'code',
-      images: 'image', discovery: 'search', enabled: 'tool', plan: 'plan', tools: 'tool' }[category] as ToolIconKind
+      images: 'image', discovery: 'search', enabled: 'tool', plan: 'plan', agents: 'agents', tools: 'tool' }[category] as ToolIconKind
     return [{ text, icon }]
   })
   const labels = parts.map((part, index) => index ? part.text[0].toLowerCase() + part.text.slice(1) : part.text)

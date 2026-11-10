@@ -10,17 +10,18 @@ from praxis_agent.execution import current_handle
 from praxis_agent.model import FunctionCall, ModelResponse
 from praxis_agent.multi_agent.models import MultiAgentConfig
 from praxis_agent.multi_agent.runtime import AgentRuntime
-from praxis_agent.multi_agent.tools import register_parent_tools
+from praxis_agent.multi_agent.tools import register_parent_tools, register_worker_tools
 from praxis_agent.planning import RunState
 from praxis_agent.service import __main__ as service
 from praxis_agent.service.manager import SessionManager
+from praxis_agent.service.collaboration import collaboration_messages
 from praxis_agent.sessions import SQLiteSessionStore
 from praxis_agent.tools import create_default_registry
 
 
 class Model:
-    def __init__(self, worker=False):
-        self.worker = worker
+    def __init__(self, agent_id=None):
+        self.agent_id = agent_id
 
     @staticmethod
     def result(items, call_id):
@@ -36,16 +37,54 @@ class Model:
         return ModelResponse(tuple({'type': 'function_call', 'call_id': call.call_id, 'name': call.name,
                                     'arguments': call.arguments} for call in calls), '', calls)
 
+    @staticmethod
+    def reports(items):
+        reports = []
+        for item in items:
+            if isinstance(item, dict) and item.get('role') == 'user' and isinstance(item.get('content'), str):
+                text = re.sub(r'^\[message_id=[^\]]+\]\s*', '', item['content'])
+                reports.extend(collaboration_messages(text) or [])
+        return reports
+
+    @staticmethod
+    def team(items):
+        for item in reversed(items):
+            text = str(item.get('content', '')) if isinstance(item, dict) else ''
+            if '<collaboration_status>' in text:
+                return json.loads(text.splitlines()[-2])
+        raise AssertionError('Missing current team context')
+
+    def wait(self, items, prefix='wait-workers'):
+        number = 1
+        while self.result(items, f'{prefix}-{number}') is not None:
+            number += 1
+        return self.calls((f'{prefix}-{number}', 'wait_agents', {'timeout': 60}))
+
     def create_response(self, items, tools, on_text_delta=None):
         users = [item for item in items if isinstance(item, dict) and item.get("role") == "user"]
-        if self.worker:
+        if self.agent_id:
             if self.result(items, 'worker-read') is None:
                 return self.calls(('worker-read', 'read_file', {'relative_path': 'notes.md'}))
             text = 'Worker review complete.\n\n- Queue order preserved\n- History checked'
+            if any('Exchange peer findings' in str(item.get('content')) for item in users):
+                peer = next((agent for agent in self.team(items) if agent['agent_id'] != self.agent_id), None)
+                if peer is None:
+                    return self.wait(items, 'wait-peer')
+                if self.result(items, 'peer-send') is None:
+                    own = next(agent for agent in self.team(items) if agent['agent_id'] == self.agent_id)
+                    return self.calls(('peer-send', 'send_message', {
+                        'target': peer['agent_id'], 'content': f"{own['task']} findings: recorded checks passed."
+                    }))
+                if not any(report['sender_id'] == peer['agent_id'] for report in self.reports(items)):
+                    return self.wait(items, 'wait-peer')
+                text = 'Peer exchange complete. Both sets of findings were received.'
+            elif any('Verify peer exchange' in str(item.get('content')) for item in users):
+                text = 'Replacement verification complete.'
             if on_text_delta:
                 on_text_delta(text)
             return ModelResponse(({'role': 'assistant', 'content': text},), text, ())
-        if any('agent sidebar example' in str(item.get('content')) for item in users):
+        peer_example = any('agent collaboration example' in str(item.get('content')) for item in users)
+        if peer_example or any('agent sidebar example' in str(item.get('content')) for item in users):
             if self.result(items, 'agent-plan') is None:
                 return self.calls(('agent-plan', 'update_plan', {'plan': [
                     {'step': 'Review the recorded checks with agents', 'status': 'in_progress'},
@@ -53,23 +92,40 @@ class Model:
                 ]}))
             spawned = [self.result(items, key) for key in ('spawn-queue', 'spawn-history')]
             if any(result is None for result in spawned):
-                return self.calls(*[(key, 'spawn_agent', {'task': 'Read notes.md and review the recorded checks.',
+                task = 'Exchange peer findings about recorded checks in notes.md.' if peer_example else 'Read notes.md and review the recorded checks.'
+                return self.calls(*[(key, 'spawn_agent', {'task': task, 'inherit_context': False,
                     'task_summary': title, 'working_directory': '.'}) for key, title in
                     [('spawn-queue', 'Queue review'), ('spawn-history', 'History review')]])
-            wait_number = 1
-            latest_wait = None
-            while (result := self.result(items, f'wait-workers-{wait_number}')) is not None:
-                latest_wait = json.loads(result['output'])
-                wait_number += 1
-            if latest_wait is None or any(worker['status'] not in ('idle', 'closed') for worker in latest_wait['agents']):
-                ids = [json.loads(result['output'])['agent_id'] for result in spawned]
-                return self.calls((f'wait-workers-{wait_number}', 'wait_agents', {'agent_ids': ids, 'timeout': 60}))
+            ids = [json.loads(result['output'])['agent_id'] for result in spawned]
+            delivered = {report['sender_id'] for report in self.reports(items) if report['content'].startswith('[Worker run ended;')}
+            # A wake is only an input notification. Inspect reports and fresh
+            # team state instead of assuming that every worker has finished.
+            if not set(ids) <= delivered or any(worker['status'] not in ('idle', 'closed') for worker in self.team(items)):
+                return self.wait(items)
+            if peer_example:
+                if self.result(items, 'close-history') is None:
+                    return self.calls(('close-history', 'close_agent', {'agent_id': ids[1]}))
+                verifier = self.result(items, 'spawn-verifier')
+                if verifier is None:
+                    return self.calls(('spawn-verifier', 'spawn_agent', {'task': 'Verify peer exchange using notes.md.',
+                        'task_summary': 'Replacement verifier', 'working_directory': '.', 'inherit_context': True}))
+                if json.loads(verifier['output'])['agent_id'] not in delivered:
+                    return self.wait(items)
             if self.result(items, 'agent-plan-complete') is None:
                 return self.calls(('agent-plan-complete', 'update_plan', {'plan': [
                     {'step': 'Review the recorded checks with agents', 'status': 'completed'},
                     {'step': 'Collect both reports', 'status': 'completed'},
                 ]}))
-            text = 'Both agent reports are available in the agent strip.'
+            text = 'Peer exchange and replacement verification complete.' if peer_example else 'Both agent reports are available in the agent strip.'
+            if on_text_delta:
+                on_text_delta(text)
+            return ModelResponse(({'role': 'assistant', 'content': text},), text, ())
+        if any('agent input wait example' in str(item.get('content')) for item in users):
+            result = self.result(items, 'wait-user')
+            if result is None:
+                return self.calls(('wait-user', 'wait_agents', {'timeout': 60}))
+            assert json.loads(result['output'])['reason'] == 'user_input'
+            text = 'User input received during agent wait.'
             if on_text_delta:
                 on_text_delta(text)
             return ModelResponse(({'role': 'assistant', 'content': text},), text, ())
@@ -116,9 +172,12 @@ def factory(workspace, **options):
                   bypass_approvals=options["bypass_approvals"], session_store=store,
                   session_id=session_id, session_model="offline")
     def worker(agent_id, control, sink):
-        return Agent(Model(worker=True), create_default_registry(), runtime.handles[agent_id].workspace,
+        registry = create_default_registry()
+        register_worker_tools(registry, runtime, agent_id)
+        return Agent(Model(agent_id), registry, runtime.handles[agent_id].workspace,
                      name=agent_id, execution_control=control, event_sink=sink,
                      receive_messages=lambda accept: runtime.receive(agent_id, accept),
+                     team_context=lambda: runtime.context_item(agent_id),
                      bypass_approvals=agent.bypass_approvals,
                      approve_tool_call=lambda name, arguments: runtime.request_approval(agent_id, name, arguments))
 
@@ -126,7 +185,8 @@ def factory(workspace, **options):
                            approve_tool_call=options['approve_tool_call'], live_output_sink=options['event_sink'])
     agent.collaboration = runtime
     agent.receive_messages = lambda accept: runtime.receive('parent', accept)
-    register_parent_tools(agent.tool_registry, runtime, agent._pump_worker_events)
+    register_parent_tools(agent.tool_registry, runtime, agent._pump_worker_events,
+                          has_user_input=agent._has_pending_user_input)
     agent.restore_history(store.load_conversation_items(session_id))
     return agent
 

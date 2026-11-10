@@ -74,6 +74,8 @@ The desktop discovers the service, verifies its local token and identity, and st
 
 Closing the desktop disconnects the client. **Use Stop to cancel a turn.** The service waits for cleanup and preserves input that has not been consumed. An approval answered in another client resolves here too.
 
+Agent details label messages from the main agent and from teammates, including after reopening a chat. Routine coordination folds into the agent dock; user input, wait timeouts and unexpected outcomes remain available in the transcript's process details. A wake does not imply that every agent has finished. Older conversations with agent-specific wait arguments remain readable.
+
 To share sessions, use the same `PRAXIS_DATA_DIR` as the terminal. It defaults to `~/.praxis`. `PRAXIS_UI_DATA_DIR` controls desktop preferences separately and does not select a different backend.
 
 The sidebar lists chats from all working directories. It refreshes every two seconds while connected and when the window regains focus, so chats created in a terminal appear automatically. The directory picker sets the default for new chats; existing chats and their file previews retain their original workspace.
