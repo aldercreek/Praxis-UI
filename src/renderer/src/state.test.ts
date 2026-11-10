@@ -34,20 +34,30 @@ describe('agent collaboration presentation', () => {
     expect(current.messages[1]).toMatchObject({ role: 'user', content: envelope })
   })
 
-  it('restores legacy envelopes under the agent and does not duplicate an existing report', () => {
-    const message = { id: 'legacy', role: 'system' as const, content: envelope, turn_id: 'turn-a', agent_id: 'main' }
-    const snapshot: SessionSnapshot = { session, sequence: 2, approvals: [], messages: [message] }
-    const restored = applySnapshot(snapshot)
-    expect(restored.messages).toHaveLength(1)
-    expect(restored.messages[0]).toMatchObject({ role: 'assistant', agent_id: 'reviewer', source: 'agent', content: report.content })
-    expect(applySnapshot({ ...snapshot, messages: [...restored.messages, message] }).messages).toHaveLength(1)
-    expect(applySnapshot({ ...snapshot, messages: [{ ...message, role: 'user', source: 'user' }] }).messages[0].content).toBe(envelope)
-    expect(message.content).toBe(envelope)
-  })
+
 })
 
 describe('turn execution metadata', () => {
   afterEach(() => vi.restoreAllMocks())
+
+  it('restores final answers only from explicit journal completion, including earlier failed turns', () => {
+    const messages = [
+      { id: 'partial', role: 'assistant' as const, turn_id: 'failed-turn', agent_id: 'main', content: 'Incomplete finding' },
+      { id: 'commentary', role: 'assistant' as const, turn_id: 'turn-a', agent_id: 'main', content: 'Investigating' },
+      { id: 'final', role: 'assistant' as const, turn_id: 'turn-a', agent_id: 'main', content: 'Confirmed answer' },
+      { id: 'peer', role: 'assistant' as const, turn_id: 'turn-a', agent_id: 'worker', content: 'Confirmed answer' }
+    ]
+    const restored = applySnapshot({ session: { ...session, status: 'idle' }, approvals: [], messages, sequence: 5,
+      view_events: [
+        { ...event('TurnFailed', 1), turn_id: 'failed-turn' },
+        event('TurnStarted', 2, { task: 'Investigate' }),
+        event('AssistantTextCompleted', 3, { text: 'Confirmed answer' }),
+        event('AssistantTextCompleted', 4, { text: 'Confirmed answer' }, 'worker'),
+        event('TurnSettled', 5, { status: 'idle' })
+      ] })
+    expect(restored.turnsById).toEqual({ 'failed-turn': { status: 'failed' }, 'turn-a': { status: 'completed', finalMessageId: 'final' } })
+    expect(restored.messages).toEqual(messages)
+  })
 
   it('confirms an unchanged streamed final answer and preserves its finish time through cleanup', () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(1000)
@@ -212,24 +222,24 @@ describe('conversation event reconciliation', () => {
     expect(current.plan).toEqual([{ description: 'Inspect files', status: 'in_progress' }])
   })
 
-  it('restores cold history without turn IDs and excludes calls without a successful result', () => {
+  it('restores journaled turns and excludes calls without a successful result', () => {
     const earlier = [{ step: 'Read files', status: 'completed' }]
     const current = [{ step: 'Check tests', status: 'pending' }]
     const messages = [
-      { id: 'message-1', role: 'user' as const, content: 'First task', agent_id: 'main' },
-      { id: 'message-2', role: 'tool' as const, content: 'Plan updated.', agent_id: 'main', tool_name: 'update_plan', status: 'completed', tool_finished: true, arguments: { plan: earlier } },
-      { id: 'message-3', role: 'user' as const, content: 'Next task', agent_id: 'main' },
-      { id: 'message-4', role: 'tool' as const, content: 'Plan updated.', agent_id: 'main', tool_name: 'update_plan', status: 'completed', tool_finished: true, arguments: { plan: current } },
-      { id: 'message-5', role: 'tool' as const, content: '', agent_id: 'main', tool_name: 'update_plan', status: 'completed', tool_finished: false, arguments: { plan: earlier } }
+      { id: 'message-1', turn_id: 'turn-a', role: 'user' as const, content: 'First task', agent_id: 'main' },
+      { id: 'message-2', turn_id: 'turn-a', role: 'tool' as const, content: 'Plan updated.', agent_id: 'main', tool_name: 'update_plan', status: 'completed', tool_finished: true, arguments: { plan: earlier } },
+      { id: 'message-3', turn_id: 'turn-b', role: 'user' as const, content: 'Next task', agent_id: 'main' },
+      { id: 'message-4', turn_id: 'turn-b', role: 'tool' as const, content: 'Plan updated.', agent_id: 'main', tool_name: 'update_plan', status: 'completed', tool_finished: true, arguments: { plan: current } },
+      { id: 'message-5', turn_id: 'turn-b', role: 'tool' as const, content: '', agent_id: 'main', tool_name: 'update_plan', status: 'completed', tool_finished: false, arguments: { plan: earlier } }
     ]
     const snapshot: SessionSnapshot = { session: { ...session, status: 'idle' }, messages, approvals: [], sequence: 0 }
     const restored = applySnapshot(snapshot)
-    expect(restored.activeTurnId).toBe('history:session-a:message-3')
+    expect(restored.activeTurnId).toBe('turn-b')
     expect(restored.plan).toEqual([{ description: 'Check tests', status: 'pending' }])
-    expect(restored.plansByTurn['history:session-a:message-1']).toEqual([{ description: 'Read files', status: 'completed' }])
+    expect(restored.plansByTurn['turn-a']).toEqual([{ description: 'Read files', status: 'completed' }])
     expect(restored.messages.at(-1)?.status).toBe('cancelled')
     expect(applySnapshot(snapshot).plansByTurn).toEqual(restored.plansByTurn)
-    expect(snapshot.messages[0].turn_id).toBeUndefined()
+    expect(snapshot.messages[0].turn_id).toBe('turn-a')
   })
 
   it('treats main as the root agent and consumes its optimistic user message', () => {
@@ -432,7 +442,6 @@ describe('main agent context usage', () => {
     current = applyEvent(current, event('ModelRequestStarted', 5, { context_status: null }))
     current = applyEvent(current, event('ModelRequestCompleted', 6, { usage: null }))
     expect(current.context).toBe(context)
-    expect(applyEvent(emptyConversation(), started(1, 'root')).context).toEqual(context)
   })
 
   it('updates the estimate and percent when compaction finishes', () => {

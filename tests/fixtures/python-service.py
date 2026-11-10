@@ -194,6 +194,8 @@ def factory(workspace, **options):
 if os.environ.get("PRAXIS_TEST_SEED_HISTORY") == "1":
     directory = Path(os.environ["PRAXIS_DATA_DIR"])
     store = SQLiteSessionStore(directory / "state.sqlite3")
+    from praxis_agent.service.store import ServiceStore
+    journal = ServiceStore(store)
     for name in ("alpha", "beta"):
         workspace = directory.parent / name
         workspace.mkdir()
@@ -208,6 +210,14 @@ if os.environ.get("PRAXIS_TEST_SEED_HISTORY") == "1":
         ])
         state.complete()
         store.finish_run(sid, name, state)
+        for event, data in [
+            ("TurnStarted", {"task": state.original_task}),
+            ("ToolCallPrepared", {"call_id": f"read-{name}", "tool_name": "read_file", "arguments": {"relative_path": "notes.md"}, "requires_approval": False}),
+            ("ToolFinished", {"call_id": f"read-{name}", "result": {"success": True, "output": f"Saved tool result {name}"}}),
+            ("AssistantTextCompleted", {"text": f"Saved answer {name}. [Notes](notes.md)"}),
+            ("TurnCompleted", {}),
+        ]:
+            journal.append_event(sid, event, name, data=data)
 
 service.SessionManager = lambda store, **options: SessionManager(store, agent_factory=factory, **options)
 service.main()

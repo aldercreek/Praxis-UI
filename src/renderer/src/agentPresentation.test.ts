@@ -84,7 +84,7 @@ describe('agent dock and continuous activity', () => {
     const state = run(frame('ChildAgentStatus', { status: 'running' }))
     state.messages.push(...['message', 'team_changed', 'user_input', 'timeout', 'closed', 'unknown'].map(reason => ({
       id: reason, role: 'tool' as const, tool_name: 'wait_agents', status: 'complete', turn_id: 'parent', arguments: { timeout: 60 }, content: JSON.stringify({ reason })
-    })), { id: 'legacy', role: 'tool', tool_name: 'wait_agents', status: 'completed', turn_id: 'parent', arguments: { agent_ids: ['reviewer'] }, content: '{}' },
+    })),
     { id: 'failed', role: 'tool', tool_name: 'wait_agents', status: 'failed', turn_id: 'parent', content: 'Wait failed' },
     { id: 'running', role: 'tool', tool_name: 'wait_agents', status: 'running', turn_id: 'parent', content: '' },
     { id: 'no-agents', role: 'tool', tool_name: 'wait_agents', status: 'running', turn_id: 'different', content: '' })
@@ -108,16 +108,9 @@ describe('agent dock and continuous activity', () => {
       expect(messages.map(message => agentInstructionLabel(message, collectAgents(state)))).toEqual(['From main agent', 'From Write tests'])
       const restored = applySnapshot({ session, approvals: [], sequence: 1, messages: state.messages })
       expect(collectAgents(restored).find(task => task.id === 'reviewer')!.messages).toEqual(messages)
-      const legacy = applySnapshot({ session, approvals: [], sequence: 1, messages: [
-        { id: 'legacy', role: 'user', source: 'agent', agent_id: 'reviewer', turn_id: 'parent', content: batch }
-      ] })
-      expect(legacy.messages.map(message => message.sender_id)).toEqual(['parent', 'writer'])
       expect(agentInstructionLabel({ ...messages[1], turn_id: 'other' }, collectAgents(state))).toBe('From writer')
     }
   })
 
-  it('does not infer success from an incomplete historical worker', () => {
-    const state = applySnapshot({ session: { ...session, status: 'idle', active_turn: null }, messages: [{ id: 'agent:parent:reviewer', role: 'system', content: 'Review', status: 'running', agent_id: 'reviewer', turn_id: 'parent' }], approvals: [], sequence: 1 })
-    expect(agentStatusLabel(collectAgents(state)[0])).toBe('Not running')
-  })
+
 })

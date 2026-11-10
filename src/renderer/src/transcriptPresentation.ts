@@ -92,16 +92,7 @@ export function presentTranscript(conversation: Conversation, cache?: TurnCache)
     // so the next turn cannot reopen the previous process before TurnStarted.
     const running = !startingTurn && id === activeTurnId && isBusy(conversation.summary?.status)
     const outcome = turnOutcome(conversation, id, messages, running)
-    let finalMessageId = execution?.finalMessageId
-    if (!finalMessageId && !execution && !running) {
-      // Older snapshots have no phase or turn timing. Keep the last main answer
-      // after the main tools visible, but never invent a final answer for a
-      // failed/interrupted turn. Live responses require AssistantTextCompleted.
-      const interrupted = outcome === 'failed' || outcome === 'cancelled'
-      const lastAnswer = messages.reduce((last, message, index) => message.role === 'assistant' && !isChildAgent(message.agent_id) ? index : last, -1)
-      const lastTool = messages.reduce((last, message, index) => message.role === 'tool' && !isChildAgent(message.agent_id) ? index : last, -1)
-      if (!interrupted && lastAnswer > lastTool) finalMessageId = messages[lastAnswer]?.id
-    }
+    const finalMessageId = execution?.finalMessageId
     const hasPlan = planTurns.has(id)
     const previous = cache?.get(id)
     if (previous && previous.hasPlan === hasPlan && previous.turn.execution === execution && previous.turn.outcome === outcome
@@ -115,12 +106,4 @@ export function presentTranscript(conversation: Conversation, cache?: TurnCache)
     cache?.set(id, { messages, hasPlan, turn })
     return turn
   })
-}
-
-export function processLabel(execution?: TurnExecution): string {
-  if (execution?.startedAt === undefined || execution.finishedAt === undefined) return 'Process'
-  const seconds = Math.max(1, Math.round((execution.finishedAt - execution.startedAt) / 1000))
-  if (seconds < 60) return `Elapsed ${seconds}s`
-  if (seconds < 3600) return `Elapsed ${Math.floor(seconds / 60)}m ${seconds % 60}s`
-  return `Elapsed ${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`
 }

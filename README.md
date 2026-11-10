@@ -1,21 +1,20 @@
-<p align="center">
-  <img src="resources/brand/icon.png" width="80" alt="Praxis icon" />
-</p>
+<p align="center"><img src="docs/assets/overview.svg" alt="Praxis Desktop connects to a local service, agent team and persistent sessions" width="100%" /></p>
 
 <h1 align="center">Praxis Desktop</h1>
 
-<p align="center">A desktop workspace for the sessions you run with Praxis.</p>
+<p align="center"><strong>See the work. Talk to the team. Keep the context.</strong></p>
 
 <p align="center">
   <a href="#get-started">Get started</a> ·
   <a href="https://github.com/aldercreek/Praxis">Python backend</a> ·
+  <a href="#follow-the-team">Agent collaboration</a> ·
   <a href="#shared-sessions">Shared sessions</a> ·
   <a href="#development">Development</a>
 </p>
 
 Praxis-UI is an Electron client for [Praxis](https://github.com/aldercreek/Praxis). Follow agent work, review tool calls and file changes, preview documents, and send instructions from a desktop window. Your terminal and desktop connect to the same local service, so a session keeps running when a window closes.
 
-> Under active development. The desktop currently runs from source with a separate Praxis Python checkout.
+> **Source preview.** A separate Praxis Python checkout is required. Keep frontend and backend on matching revisions. Old protocols and record formats are not supported; backend databases are not migrated. Use a new `PRAXIS_DATA_DIR` when moving from an older schema.
 
 ## Inside the workspace
 
@@ -23,11 +22,26 @@ Praxis-UI is an Electron client for [Praxis](https://github.com/aldercreek/Praxi
 - **Visible execution.** Inspect tool arguments, command output, per-turn plans, subagent activity, and changed files.
 - **Python execution.** Read source, stdout/stderr, results and exceptions separately, copy code or output, and open saved overflow logs. Cancelled calls appear as Stopped, including when reopening a chat.
 - **Direct control.** Send follow-ups during execution, approve or deny tools, stop a turn, and resume or delete retained input.
-- **Delete chats.** Use a chat's `…` menu or `/delete`, then confirm. Running work stops before history is removed; workspace files are preserved.
+- **Delete chats.** Right-click a chat or use `/delete`, then confirm. Running work stops before history is removed; workspace files are preserved.
 - **Document previews.** Open text, Markdown, images, and PDFs alongside the conversation; reveal files in your system file manager.
 - **Selection-to-quote input.** Select text from an answer or preview and use it as context in your next instruction.
 - **Automatic reconnect.** Recover missed events from the last applied sequence while keeping the existing conversation on screen.
 - **MCP status.** Type `/mcp` to view configured service names and connection states, with a refresh button. This works without a selected chat or model API key and does not send a model instruction.
+
+## Follow the team
+
+![Direct peer messaging and live team context, with waits that wake on collaboration changes](docs/assets/collaboration.svg)
+
+The main agent can create focused workers and optionally pass along its retained conversation. Workers can message the parent and each other. Open an agent's details to see its task, tool activity and messages labelled by sender; attribution survives reopening a current chat.
+
+| Surface | What to look for |
+| --- | --- |
+| Agent dock | Each delegated task and its execution state |
+| Agent details | Instructions, teammate messages, tools and results |
+| Process details | User-input wakes, timeouts and unusual coordination outcomes |
+| Bottom approval card | The pending tool's actual command or parameters, with Allow / Reject |
+
+Routine coordination folds into the dock. **A wait ending does not mean every agent has finished.** Team membership, context inheritance and message delivery belong to the Python backend; the desktop displays their events rather than running a second agent loop.
 
 ## Get started
 
@@ -74,7 +88,7 @@ The desktop discovers the service, verifies its local token and identity, and st
 
 Closing the desktop disconnects the client. **Use Stop to cancel a turn.** The service waits for cleanup and preserves input that has not been consumed. An approval answered in another client resolves here too.
 
-Agent details label messages from the main agent and from teammates, including after reopening a chat. Routine coordination folds into the agent dock; user input, wait timeouts and unexpected outcomes remain available in the transcript's process details. A wake does not imply that every agent has finished. Older conversations with agent-specific wait arguments remain readable.
+Agent details label messages from the main agent and from teammates, including after reopening a chat. Routine coordination folds into the agent dock; user input, wait timeouts and unexpected outcomes remain available in the transcript's process details. A wake does not imply that every agent has finished.
 
 To share sessions, use the same `PRAXIS_DATA_DIR` as the terminal. It defaults to `~/.praxis`. `PRAXIS_UI_DATA_DIR` controls desktop preferences separately and does not select a different backend.
 

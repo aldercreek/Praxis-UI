@@ -51,7 +51,7 @@ export function emptyConversation(): Conversation {
 export const isBusy = (status?: string) => status === 'running' || status === 'stopping'
 export const textOf = (value: unknown): string => typeof value === 'string' ? value : value === undefined || value === null ? '' : JSON.stringify(value, null, 2)
 const objectOf = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-export const isChildAgent = (agentId?: string) => Boolean(agentId && agentId !== 'root' && agentId !== 'main')
+export const isChildAgent = (agentId?: string) => Boolean(agentId && agentId !== 'main')
 const agentKey = (event: PraxisEvent) => isChildAgent(event.agent_id) ? event.agent_id : 'main'
 const executionKey = (event: PraxisEvent) => textOf(event.data.child_turn_id) || event.turn_id
 const toolKey = (event: PraxisEvent) => `tool:${event.turn_id}:${agentKey(event)}:${event.data.call_id}`
@@ -353,32 +353,7 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
 }
 
 export function applySnapshot(snapshot: SessionSnapshot, buffered: PraxisEvent[] = []): Conversation {
-  // Cold history contains message IDs but no turn IDs. Use stable user-message
-  // sections for display only; live protocol IDs always take precedence.
-  let historyTurnId = `history:${snapshot.session.id}:start`
-  // Older services projected model-only envelopes as ordinary user/system text.
-  // Recover their sender identity without exposing the envelope in the main chat.
-  const restored: DisplayMessage[] = []
-  for (const message of snapshot.messages) {
-    const reports = message.source !== 'user' && (message.role === 'user' || message.role === 'system') ? readAgentReports(message.content) : undefined
-    if (!reports) { restored.push(message); continue }
-    for (const [index, report] of reports.entries()) {
-      const agent = isChildAgent(message.agent_id) ? message.agent_id : report.recipient_id === 'parent' ? report.sender_id : undefined
-      if (!agent || !isChildAgent(agent)) continue
-      if (report.recipient_id === 'parent' && snapshot.messages.some(other => other.agent_id === agent && other.turn_id === message.turn_id && other.content === report.content)) continue
-      restored.push({ ...message, id: `${message.id}:report:${index}`, role: report.recipient_id === 'parent' ? 'assistant' : 'user', agent_id: agent, content: report.content,
-        source: 'agent', sender_id: report.sender_id, recipient_id: report.recipient_id })
-    }
-  }
-  const history = restored.map(message => {
-    if (message.turn_id) {
-      if (!isChildAgent(message.agent_id)) historyTurnId = message.turn_id
-      return message
-    }
-    if (message.role === 'user' && !isChildAgent(message.agent_id)) historyTurnId = `history:${snapshot.session.id}:${message.id}`
-    return { ...message, turn_id: historyTurnId }
-  })
-  const messages = reconcileCommands(history).map(message => {
+  const messages = reconcileCommands(snapshot.messages).map(message => {
     if (message.role === 'tool') message = { ...message, status: toolStatus(message) }
     if (message.role === 'tool' && message.tool_finished === false && ['complete', 'completed'].includes(message.status || '')) {
       message = { ...message, status: isBusy(snapshot.session.status) ? 'pending' : 'cancelled' }
@@ -398,6 +373,23 @@ export function applySnapshot(snapshot: SessionSnapshot, buffered: PraxisEvent[]
     pendingInputs: snapshot.pending_inputs || [],
     sendingInputId: snapshot.sending_input_id || undefined,
     pausedInputs: (snapshot.pending_inputs || []).map(item => item.content)
+  }
+  // Restore outcomes from the same journal used for the transcript. Do not
+  // guess final answers from message order or invent timestamps on reopening.
+  for (const event of snapshot.view_events || []) {
+    if (isChildAgent(event.agent_id) || !event.turn_id) continue
+    const id = event.turn_id
+    const previous = current.turnsById[id]
+    if (event.event === 'TurnStarted') current.turnsById[id] = { status: 'running' }
+    else if (event.event === 'AssistantTextCompleted') {
+      const final = [...messages].reverse().find(message => message.turn_id === id && !isChildAgent(message.agent_id)
+        && message.role === 'assistant' && message.content === event.data.text)
+      current.turnsById[id] = { ...previous, status: 'completed', finalMessageId: final?.id }
+    } else if (['TurnCompleted', 'TurnFailed', 'TurnCancelled', 'TurnSettled'].includes(event.event)) {
+      const status = event.event === 'TurnFailed' || event.data.status === 'failed' ? 'failed'
+        : event.event === 'TurnCancelled' || event.data.status === 'cancelled' ? 'cancelled' : 'completed'
+      current.turnsById[id] = { ...previous, status }
+    }
   }
   current.agentExecutions = (snapshot.view_events || []).reduce((agents, event) => applyAgentEvent(agents, event), {} as Record<string, AgentExecution>)
   current.context = (snapshot.view_events || []).reduce<ContextUsage | undefined>(updateContext, undefined)

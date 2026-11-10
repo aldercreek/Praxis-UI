@@ -20,8 +20,6 @@ const actions: Record<string, { verb: string; running: string; completed: string
   run_command: { verb: 'Run', running: 'Running', completed: 'Ran', object: 'command', kind: 'command' },
   run_code: { verb: 'Run', running: 'Running', completed: 'Ran', object: 'Python', kind: 'tool' },
   wait_command: { verb: 'Read', running: 'Reading', completed: 'Read', object: 'command output', kind: 'command' },
-  view_image: { verb: 'View image', running: 'Viewing image', completed: 'Viewed image', object: '', kind: 'image' },
-  read_image: { verb: 'View image', running: 'Viewing image', completed: 'Viewed image', object: '', kind: 'image' },
   update_plan: { verb: 'Update plan', running: 'Updating plan', completed: 'Updated plan', object: '', kind: 'tool' },
   wait_agents: { verb: 'Wait for', running: 'Waiting for', completed: 'Finished waiting for', object: 'agent updates', kind: 'tool' },
   send_message: { verb: 'Send message to', running: 'Sending message to', completed: 'Sent message to', object: 'main agent', kind: 'tool' },
@@ -77,7 +75,7 @@ export function presentTool(message: DisplayMessage) {
   const commandText = command.trim()
   const script = name === 'run_command' && (/[\r\n]/.test(commandText) || /^@['"]$/.test(commandText))
   const description = name === 'run_command' ? textOf(argument.description).trim().replace(/\s+/g, ' ') : ''
-  const path = textOf(argument.relative_path ?? argument.path ?? argument.file_path ?? message.file_change?.path)
+  const path = textOf(argument.relative_path ?? message.file_change?.path)
   const icon: ToolIconKind = name === 'list_files' ? 'folder' : name === 'update_plan' ? 'plan'
     : coordinationTools.has(name) ? 'agents'
     : name.startsWith('mcp_') ? 'connection' : name === 'run_code' ? 'code'
@@ -96,7 +94,7 @@ export function presentTool(message: DisplayMessage) {
     fullTarget = command
     target = script ? 'script' : commandText
   } else if (name === 'search_text' || name === 'find_files') {
-    const pattern = textOf(argument.pattern ?? argument.query ?? argument.file_pattern)
+    const pattern = textOf(name === 'search_text' ? argument.query : argument.file_pattern)
     target = [pattern, path && path !== '.' ? `(${path.replaceAll('\\', '/')})` : ''].filter(Boolean).join(' ')
     fullTarget = target
   } else if (path) {
@@ -203,10 +201,6 @@ export function currentToolGroupId(items: (DisplayMessage | ToolGroup)[], runnin
   }
 }
 
-function standaloneTool(message: DisplayMessage): boolean {
-  return message.tool_name === 'view_image' || message.tool_name === 'read_image'
-}
-
 const agent = (message: DisplayMessage) => isChildAgent(message.agent_id) ? message.agent_id : 'main'
 export const MAX_GROUP_CALLS = 20
 
@@ -225,7 +219,7 @@ export function groupTranscript(messages: DisplayMessage[], planTurnIds?: Readon
   let index = 0
   while (index < messages.length) {
     const first = messages[index]
-    if (first.role !== 'tool' || standaloneTool(first)) {
+    if (first.role !== 'tool') {
       items.push(first)
       index += 1
       continue
@@ -234,7 +228,6 @@ export function groupTranscript(messages: DisplayMessage[], planTurnIds?: Readon
     // boundaries fixed when hidden plan metadata resolves.
     let end = index + 1
     while (end < messages.length && end - index < MAX_GROUP_CALLS && messages[end].role === 'tool'
-      && !standaloneTool(messages[end])
       && messages[end].turn_id === first.turn_id && messages[end].child_turn_id === first.child_turn_id
       && agent(messages[end]) === agent(first)) end += 1
     // A stage can mix reads, edits and commands. Hidden plan metadata stays in

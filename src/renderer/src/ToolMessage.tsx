@@ -36,7 +36,7 @@ export function ToolMessage({ message, onExpand }: { message: DisplayMessage; on
   const outcome = isCommand ? commandOutcome(message) : undefined
   const hasDiff = Boolean(message.file_change?.diff)
   const diffLines = hasDiff ? fileDiffLines(message.file_change!.diff) : []
-  const path = textOf(message.file_change?.path ?? argument.relative_path ?? argument.path ?? argument.file_path)
+  const path = textOf(message.file_change?.path ?? argument.relative_path)
   const previewPath = hasDiff ? fileChangePreviewPath(message)
     : path && (!isChildAgent(message.agent_id) || isAbsoluteFileReference(path)) ? path : undefined
   const fileLabel = (isEdit || tool.name === 'read_file') && path && tool.status === 'Complete'
@@ -48,7 +48,7 @@ export function ToolMessage({ message, onExpand }: { message: DisplayMessage; on
   }, [message.output])
   // Pending actions live in the bottom approval card until a decision arrives.
   if (awaiting) return null
-  const bodyText = isEdit && running ? textOf(argument.content ?? argument.new_string ?? argument.new_text ?? '') : ''
+  const bodyText = isEdit && running ? textOf(argument.content ?? '') : ''
   const note = tool.status === 'Denied' ? 'Action rejected'
     : tool.status === 'Stopped' ? 'Action stopped'
     : running ? 'Waiting for output' : tool.status === 'Complete' ? 'Ran successfully' : 'No output'

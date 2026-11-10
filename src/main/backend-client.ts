@@ -66,10 +66,7 @@ export class BackendClient extends EventEmitter {
           if (response.status === 401 && attempt < 3) { await this.reconnect(); continue }
           const raw = await response.text()
           let message: string | undefined
-          try { message = (JSON.parse(raw) as { error?: { message?: string } }).error?.message } catch { /* Older services may return plain HTTP errors. */ }
-          if (!message && response.status === 404 && /\/queue\//.test(path)) {
-            message = 'The running Praxis service needs an update to use these queue controls. Restart the background service after its tasks finish. Your queued message is unchanged.'
-          }
+          try { message = (JSON.parse(raw) as { error?: { message?: string } }).error?.message } catch { /* Use the HTTP status when the response has no JSON error. */ }
           throw new RequestError(message || `Praxis request failed (HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}).`, response.status)
         }
         const raw = await response.text()

@@ -102,11 +102,11 @@ async function fixture() {
 function encode(event: PraxisEvent) { return `id: ${event.sequence}\nevent: ${event.event}\ndata: ${JSON.stringify(event)}\n\n` }
 
 describe('shared HTTP and SSE client', () => {
-  it('reports an old queue endpoint clearly without retrying a plain-text 404', async () => {
+  it('reports a plain-text HTTP error without retrying the mutation', async () => {
     const server = await fixture()
     const client = await server.connect()
     server.failHttp(404, 'Not Found')
-    await expect(client.request('input.send', { session_id: 'S1', input_id: 'queued' })).rejects.toThrow('running Praxis service needs an update')
+    await expect(client.request('input.send', { session_id: 'S1', input_id: 'queued' })).rejects.toThrow('Praxis request failed (HTTP 404')
     expect(server.failedRequests()).toBe(1)
   })
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PraxisEvent, SessionSummary } from '../../shared/protocol'
 import { applyEvent, emptyConversation, type Conversation, type DisplayMessage } from './state'
-import { completedLabel, createTranscriptPresenter, isProcessItem, presentTranscript, processLabel, visibleBodyIds } from './transcriptPresentation'
+import { completedLabel, createTranscriptPresenter, isProcessItem, presentTranscript, visibleBodyIds } from './transcriptPresentation'
 
 const session: SessionSummary = {
   id: 'session-a', title: 'Task', workspace: '/work', model: 'test', status: 'idle', updated_at: '2026-10-25T00:00:00Z'
@@ -11,7 +11,8 @@ const message = (id: string, role: DisplayMessage['role'], patch: Partial<Displa
 })
 const tool = (id: string, patch: Partial<DisplayMessage> = {}) => message(id, 'tool', { tool_name: 'read_file', ...patch })
 const conversation = (messages: DisplayMessage[], patch: Partial<Conversation> = {}): Conversation => ({
-  ...emptyConversation(), summary: session, messages, activeTurnId: 'turn-a', ...patch
+  ...emptyConversation(), turnsById: Object.fromEntries(messages.filter(message => ['answer', 'old-answer', 'new-answer'].includes(message.id))
+    .map(message => [message.turn_id!, { status: 'completed', finalMessageId: message.id }])), summary: session, messages, activeTurnId: 'turn-a', ...patch
 })
 
 describe('turn transcript presentation', () => {
@@ -116,13 +117,12 @@ describe('turn transcript presentation', () => {
     expect(childOnly.finalMessageId).toBeUndefined()
   })
 
-  it('keeps completed historical answers visible without inventing execution metadata or elapsed time', () => {
+  it('keeps explicitly confirmed historical answers visible without inventing elapsed time', () => {
     const messages = [message('request', 'user'), message('progress', 'assistant'), tool('read'), message('answer', 'assistant')]
     const turn = presentTranscript(conversation(messages))[0]
     expect(turn.finalMessageId).toBe('answer')
-    expect(turn.execution).toBeUndefined()
+    expect(turn.execution).toEqual({ status: 'completed', finalMessageId: 'answer' })
     expect(turn.outcome).toBe('completed')
-    expect(processLabel(turn.execution)).toBe('Process')
     expect(turn.items.filter(item => !isProcessItem(item, turn.finalMessageId)).map(item => item.id)).toEqual(['request', 'answer'])
   })
 
@@ -181,7 +181,7 @@ describe('turn transcript presentation', () => {
     ], { activeTurnId: 'turn-b', summary: { ...session, latest_turn: { id: 'turn-b', status } } }))
     expect(turns.map(turn => turn.outcome)).toEqual(['completed', status])
     expect(turns.map(turn => turn.finalMessageId)).toEqual(['old-answer', undefined])
-    expect(turns.every(turn => turn.execution === undefined)).toBe(true)
+    expect(turns[0].execution?.finalMessageId).toBe('old-answer')
   })
 
   it('does not treat recoverable tool or child failures as a failed root turn', () => {
@@ -241,20 +241,6 @@ describe('turn transcript presentation', () => {
     expect(turn.finalMessageId).toBe('answer')
     expect(turn.hasProcess).toBe(false)
     expect(turn.items.map(item => item.id)).toEqual(['request', 'answer'])
-  })
-})
-
-describe('process elapsed time', () => {
-  it('requires both observed timestamps before showing a duration', () => {
-    expect(processLabel()).toBe('Process')
-    expect(processLabel({ status: 'running', startedAt: 1000 })).toBe('Process')
-    expect(processLabel({ status: 'completed', finishedAt: 5000 })).toBe('Process')
-  })
-
-  it('formats known seconds, minutes and hours from the recorded turn duration', () => {
-    expect(processLabel({ status: 'completed', startedAt: 1000, finishedAt: 46000 })).toBe('Elapsed 45s')
-    expect(processLabel({ status: 'completed', startedAt: 1000, finishedAt: 76000 })).toBe('Elapsed 1m 15s')
-    expect(processLabel({ status: 'completed', startedAt: 1000, finishedAt: 3661000 })).toBe('Elapsed 1h 1m')
   })
 })
 

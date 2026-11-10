@@ -16,7 +16,7 @@ export interface AgentTask extends AgentExecution {
   attention: boolean
 }
 export const agentKey = (turnId: string, id: string) => JSON.stringify([turnId, id])
-const child = (id?: string) => Boolean(id && id !== 'main' && id !== 'root')
+const child = (id?: string) => Boolean(id && id !== 'main')
 const active = (status: AgentStatus) => ['queued', 'running', 'closing'].includes(status)
 const statusOf = (status?: string): AgentStatus => ({ idle: 'returned', cancelled: 'stopped', completed: 'returned', complete: 'returned' }[status || ''] as AgentStatus)
   || (['queued', 'running', 'closing', 'closed', 'failed'].includes(status || '') ? status as AgentStatus : 'unknown')
@@ -86,9 +86,6 @@ export function collectAgents(conversation: Conversation): AgentTask[] {
   for (const task of tasks.values()) {
     task.title ||= task.messages.find(message => message.role === 'user')?.content.split('\n')[0] || 'Agent task'
     task.attention = conversation.approvals.some(approval => approval.agent_id === task.id && approval.turn_id === task.turnId)
-    // Older services may have no journal. Don't leave historical workers
-    // spinning forever, and don't claim that missing outcomes were successful.
-    if (active(task.status) && (task.turnId !== currentTurn || !['running', 'stopping'].includes(conversation.summary?.status || ''))) task.status = 'unknown'
     // A worker report repeats its final model response, sometimes with a
     // transport wrapper. Keep one copy per run, but retain repeated follow-ups.
     let lastResponse = ''
@@ -133,7 +130,7 @@ export function mainAgentMessages(conversation: Conversation): DisplayMessage[] 
     }
     // Unfiltered waits are represented by the dock. Retain user interruptions,
     // timeouts and unfamiliar outcomes so they remain inspectable in the chat.
-    if (message.tool_name === 'wait_agents' && !Array.isArray(message.arguments?.agent_ids)) {
+    if (message.tool_name === 'wait_agents') {
       return !['running', 'pending'].includes(message.status || '') && !['message', 'team_changed'].includes(String(result?.reason))
     }
     if (message.tool_name === 'send_messages' && ['complete', 'completed'].includes(message.status || '')) {
@@ -143,7 +140,6 @@ export function mainAgentMessages(conversation: Conversation): DisplayMessage[] 
     const args = message.arguments
     const ids: unknown[] = message.tool_name === 'spawn_agent' ? [result?.agent_id]
       : message.tool_name === 'send_messages' ? Array.isArray(args?.messages) ? args.messages.map(item => item?.agent_id) : []
-      : message.tool_name === 'wait_agents' ? Array.isArray(args?.agent_ids) ? args.agent_ids : []
       : [args?.agent_id]
     return !ids.length || ids.some(id => typeof id !== 'string' || !candidates.some(agent => agent.id === id))
   })

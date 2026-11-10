@@ -118,7 +118,7 @@ describe('tool details', () => {
     await act(async () => root.render(createElement(PythonExecution, { message: { id: 'python', role: 'tool', tool_name: 'run_code', content: JSON.stringify({ result }), status: 'complete' } })))
     expect(container.querySelector('[aria-label="Python result"]')!.textContent).toBe(String(result))
   })
-  it('shows Python exceptions and raw legacy output but suppresses cancellation tracebacks', async () => {
+  it('shows Python exceptions and plain-text tool errors but suppresses cancellation tracebacks', async () => {
     const render = async (content: string) => act(async () => root.render(createElement(ToolMessage, { message: { id: 'python', role: 'tool', tool_name: 'run_code', content, status: 'failed', tool_finished: true } })))
     await render(JSON.stringify({ error: 'ValueError: invalid input', error_kind: 'runtime', state_lost: false }))
     expect(container.querySelector('[aria-label="Python error"]')!.textContent).toBe('ValueError: invalid input')

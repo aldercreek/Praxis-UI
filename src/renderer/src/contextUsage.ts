@@ -7,7 +7,7 @@ export const contextColor = (pressure: string): string => pressure === 'soft' ? 
 const validNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
 
 export function updateContext(current: ContextUsage | undefined, event: PraxisEvent): ContextUsage | undefined {
-  if (event.agent_id && event.agent_id !== 'main' && event.agent_id !== 'root') return current
+  if (event.agent_id && event.agent_id !== 'main') return current
   const data = event.data
   if (event.event === 'ModelRequestStarted') {
     const status = data.context_status as Record<string, unknown> | null | undefined

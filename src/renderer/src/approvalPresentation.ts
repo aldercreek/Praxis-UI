@@ -1,6 +1,6 @@
 import type { Approval } from '../../shared/protocol'
 
-const approvalAgent = (agentId?: string) => !agentId || agentId === 'main' || agentId === 'root' ? 'main' : agentId
+const approvalAgent = (agentId?: string) => !agentId || agentId === 'main' ? 'main' : agentId
 
 export function presentApproval(approval: Approval) {
   const command = typeof approval.arguments.command === 'string' && approval.arguments.command.trim() ? approval.arguments.command : undefined

@@ -33,7 +33,6 @@ describe('tool summaries', () => {
   it('shows Praxis relative paths, including Windows paths and requested line ranges', () => {
     const tool = presentTool(read('read', { arguments: { relative_path: 'src\\praxis_agent\\agent.py', start_line: 10, end_line: 40 } }))
     expect(tool).toMatchObject({ summary: 'Read src/praxis_agent/agent.py:10–40', kind: 'read', fullTarget: 'src/praxis_agent/agent.py:10–40' })
-    expect(presentTool(read('legacy', { arguments: { file_path: 'README.md' } })).target).toBe('README.md')
   })
 
   it('labels multiline commands as scripts and keeps their original contents', () => {
@@ -72,12 +71,12 @@ describe('tool summaries', () => {
       expect(presentTool(read(status, { tool_name: 'write_file', arguments: { relative_path: 'App.tsx' }, status }))).toMatchObject({ summary, running: false })
     }
     expect(presentTool(read('error', { error: true })).status).toBe('Failed')
-    expect(presentTool(read('running', { status: 'running', arguments: { path: 'README.md' } }))).toMatchObject({ summary: 'Reading README.md', running: true })
+    expect(presentTool(read('running', { status: 'running', arguments: { relative_path: 'README.md' } }))).toMatchObject({ summary: 'Reading README.md', running: true })
     expect(presentTool(read('unknown', { status: undefined })).status).toBe('Unknown')
   })
 
   it('preserves unknown tool identities and shows search scope without inventing results', () => {
-    expect(presentTool(read('search', { tool_name: 'search_text', arguments: { pattern: 'class Agent', relative_path: 'src' } })))
+    expect(presentTool(read('search', { tool_name: 'search_text', arguments: { query: 'class Agent', relative_path: 'src' } })))
       .toMatchObject({ summary: 'Searched class Agent (src)', kind: 'search' })
     expect(presentTool(read('external', { tool_name: 'mcp__docs__lookup', arguments: { query: 'desktop UI' } })))
       .toMatchObject({ summary: 'Called docs · lookup · desktop UI', name: 'mcp__docs__lookup', kind: 'tool' })
@@ -103,7 +102,7 @@ const groups = (messages: DisplayMessage[], planTurnIds?: ReadonlySet<string>): 
 
 describe('compact activity presentation', () => {
   it('keeps the current stage visible and failures discoverable during out-of-order completion', () => {
-    const messages = [read('failed', { status: 'failed' }), read('active', { status: 'running', arguments: { path: 'api/pom.xml' } }), read('finished')]
+    const messages = [read('failed', { status: 'failed' }), read('active', { status: 'running', arguments: { relative_path: 'api/pom.xml' } }), read('finished')]
     expect(presentToolGroup(groups(messages)[0], true)).toMatchObject({ live: true, hasAttention: true })
     expect(presentToolGroup(groups(messages)[0])?.attention.map(entry => entry.message.id)).toEqual(['failed'])
     const completed = messages.map(message => message.id === 'active' ? { ...message, status: 'complete' } : message)
@@ -123,7 +122,7 @@ describe('compact activity presentation', () => {
   })
 
   it('keeps all parallel calls visible until both the calls and their stage have ended', () => {
-    const calls = [read('first', { status: 'running', arguments: { path: 'first.ts' } }), read('second', { status: 'running', arguments: { path: 'second.ts' } })]
+    const calls = [read('first', { status: 'running', arguments: { relative_path: 'first.ts' } }), read('second', { status: 'running', arguments: { relative_path: 'second.ts' } })]
     expect(presentToolGroup(groups(calls)[0], true)?.live).toBe(true)
     calls[1] = { ...calls[1], status: 'complete' }
     expect(presentToolGroup(groups(calls)[0], true)?.live).toBe(true)
@@ -140,7 +139,7 @@ describe('compact activity presentation', () => {
   })
 
   it('names the latest running call while a group is live', () => {
-    const calls = [read('first'), read('second', { status: 'running', arguments: { path: 'second.ts' } }), read('third', { status: 'pending' })]
+    const calls = [read('first'), read('second', { status: 'running', arguments: { relative_path: 'second.ts' } }), read('third', { status: 'pending' })]
     expect(presentToolGroup(groups(calls)[0], true)?.active?.message.id).toBe('second')
     calls[1] = { ...calls[1], status: 'complete' }
     expect(presentToolGroup(groups(calls)[0], true)?.active?.message.id).toBe('third')
@@ -168,11 +167,11 @@ describe('compact activity presentation', () => {
     const cases = [
       ['list_files', 'src', 'folder'], ['read_file', 'notes.md', 'read'], ['read_file', 'src/App.tsx', 'code'],
       ['search_text', '', 'search'], ['write_file', 'notes.md', 'edit'], ['run_command', '', 'command'],
-      ['view_image', 'picture.png', 'image'], ['mcp__docs__search', '', 'connection'], ['mcp_codegraph_status', '', 'connection'],
+      ['mcp__docs__search', '', 'connection'], ['mcp_codegraph_status', '', 'connection'],
       ['activate_tools', '', 'tool'], ['run_code', '', 'code'], ['unknown_tool', '', 'tool'], ['update_plan', '', 'plan']
     ] as const
     for (const [tool_name, path, icon] of cases) for (const status of ['running', 'complete']) {
-      expect(presentTool(read(tool_name, { tool_name, status, arguments: { path } })).icon).toBe(icon)
+      expect(presentTool(read(tool_name, { tool_name, status, arguments: { relative_path: path } })).icon).toBe(icon)
     }
     expect(toolFileLabel('cache\\pom.xml')).toBe('cache/pom.xml')
     expect(toolFileLabel('D:\\project\\api\\pom.xml')).toBe('api/pom.xml')
@@ -182,14 +181,14 @@ describe('compact activity presentation', () => {
 
 describe('stable activity groups', () => {
   it('uses the same group from the first call through additions and out-of-order completion', () => {
-    let messages = [read('a', { status: 'running', tool_finished: false, arguments: { path: 'a.ts' } })]
+    let messages = [read('a', { status: 'running', tool_finished: false, arguments: { relative_path: 'a.ts' } })]
     const groupId = groups(messages)[0].id
     expect(groups(messages)[0]).toMatchObject({
       id: 'group:a', role: 'tool-group', messages
     })
     for (const message of [
       read('b', { status: 'pending', tool_finished: false, tool_name: 'run_command', arguments: { command: 'npm test' } }),
-      read('c', { status: 'pending', tool_finished: false, tool_name: 'edit_file', arguments: { path: 'c.ts' } })
+      read('c', { status: 'pending', tool_finished: false, tool_name: 'edit_file', arguments: { relative_path: 'c.ts' } })
     ]) {
       messages = [...messages, message]
       expect(groups(messages).map(group => group.id)).toEqual([groupId])
@@ -218,10 +217,10 @@ describe('stable activity groups', () => {
 
   it('retains each failure and approval on its own tool without an aggregate summary', () => {
     const messages = [
-      read('failed', { status: 'failed', arguments: { path: 'missing.ts' } }),
-      read('approval', { status: 'approval', arguments: { path: 'private.ts' } }),
-      read('denied', { status: 'denied', arguments: { path: 'denied.ts' } }),
-      read('cancelled', { status: 'cancelled', arguments: { path: 'cancelled.ts' } }),
+      read('failed', { status: 'failed', arguments: { relative_path: 'missing.ts' } }),
+      read('approval', { status: 'approval', arguments: { relative_path: 'private.ts' } }),
+      read('denied', { status: 'denied', arguments: { relative_path: 'denied.ts' } }),
+      read('cancelled', { status: 'cancelled', arguments: { relative_path: 'cancelled.ts' } }),
       read('running', { status: 'running' })
     ]
     const group = groups(messages)[0]
@@ -245,13 +244,6 @@ describe('stable activity groups', () => {
     expect(result.flatMap(group => group.messages)).toEqual(messages)
   })
 
-  it('keeps image viewing independent and uses it as a group boundary', () => {
-    const image = read('image', { tool_name: 'view_image' })
-    const items = groupTranscript([read('first'), image, read('last')])
-    expect(items.map(item => item.id)).toEqual(['group:first', 'image', 'group:last'])
-    expect(items[1]).toBe(image)
-  })
-
   it('does not report a yielded background command or a nonzero exit as completed', () => {
     const yielded = read('command', { tool_name: 'run_command', structured_output: { status: 'running', session_id: 'cmd-1' } })
     expect(presentTool(groups([yielded])[0].messages[0])).toMatchObject({ running: true, status: 'Running' })
@@ -273,8 +265,8 @@ describe('stable activity groups', () => {
   it('preserves repeated reads and their requested line ranges', () => {
     const messages = [
       read('first-part', { arguments: { relative_path: 'src\\App.tsx', start_line: 1, end_line: 40 } }),
-      read('second-part', { arguments: { path: 'src/App.tsx', start_line: 41, end_line: 80 } }),
-      read('other-file', { arguments: { file_path: 'src/styles.css' } })
+      read('second-part', { arguments: { relative_path: 'src/App.tsx', start_line: 41, end_line: 80 } }),
+      read('other-file', { arguments: { relative_path: 'src/styles.css' } })
     ]
     expect(groups(messages)[0].messages).toEqual(messages)
     expect(groups([...messages, read('unknown-path')])[0].messages).toHaveLength(4)
@@ -293,7 +285,6 @@ describe('stable activity groups', () => {
       expect(result[2]).toMatchObject({ id: 'group:c', messages: messages.slice(3) })
       if (boundary.role) expect(result[1]).toEqual(messages[2])
     }
-    expect(groups([read('root', { agent_id: 'root' }), read('main')])).toHaveLength(1)
   })
 })
 
