@@ -1,0 +1,44 @@
+src/shared/protocol.ts
+  s_e018054f3c0ceb::t_7eab159aedf3aa 34-35
+tests/e2e/shared-service.spec.ts
+  s_e018054f3c0ceb::t_182814e242ecc0 246
+  s_e018054f3c0ceb::t_f9e573f48b2424 167-235,239-245,247-249
+  s_e018054f3c0ceb::t_ad381c294337d3 236-238
+src/renderer/src/AgentPanel.tsx
+  s_e018054f3c0ceb::t_7eab159aedf3aa 3,113
+src/renderer/src/agentPresentation.ts
+  s_e018054f3c0ceb::t_7eab159aedf3aa 112-118,134-137
+src/renderer/src/state.ts
+  s_e018054f3c0ceb::t_7eab159aedf3aa 161-167,185,287,368-370
+src/renderer/src/ToolMessage.tsx
+  s_e018054f3c0ceb::t_246494f2fffa65 2,18
+README.md
+  s_e018054f3c0ceb::t_f9e573f48b2424 78
+  s_e018054f3c0ceb::t_1b60da628670b8 77
+tests/fixtures/python-service.py
+  s_e018054f3c0ceb::t_b39e9b95abbd61 13,17,23-24,40-62,65,69-82,86-87,95-96,99-113,119-128,175-177,180,188-189
+src/renderer/src/toolPresentation.ts
+  s_e018054f3c0ceb::t_3b97d21e8bd6d3 34-37,44
+  s_e018054f3c0ceb::t_246494f2fffa65 5,25-28,33,38-43,82,89-95,119,142,150,155,168,171,174
+  s_e018054f3c0ceb::t_1b60da628670b8 29-30
+src/renderer/src/agentPresentation.test.ts
+  s_e018054f3c0ceb::t_4d1a01e1e90ae4 4,83-116
+src/renderer/src/toolPresentation.test.ts
+  s_e018054f3c0ceb::t_4d1a01e1e90ae4 11-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "995a288fc65e4e270bd6865b23221b586c17b474",
+  "prompts": {},
+  "sessions": {
+    "s_e018054f3c0ceb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c3a4-0e32-70e1-8a93-6c622c9099e0",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    }
+  }
+}
