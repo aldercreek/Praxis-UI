@@ -1,0 +1,48 @@
+src/renderer/src/ToolMessage.tsx
+  s_1df716b35aa977::t_fbbc64de3c79fb 14,28,77-78,90
+README.md
+  s_1df716b35aa977::t_91a67da258b5a3 24
+src/renderer/src/timeline.css
+  s_1df716b35aa977::t_fbbc64de3c79fb 63-65
+src/renderer/src/PythonExecution.tsx
+  s_1df716b35aa977::t_fbbc64de3c79fb 1-49
+src/renderer/src/state.test.ts
+  s_1df716b35aa977::t_10b4d95c1f80b4 8-23
+src/renderer/src/pythonOutput.ts
+  s_1df716b35aa977::t_fbbc64de3c79fb 1-17
+src/renderer/src/messageActions.test.ts
+  s_1df716b35aa977::t_10b4d95c1f80b4 6-7,98-132
+tests/e2e/desktop.spec.ts
+  s_1df716b35aa977::t_c02835ddfcb5c9 672,690,695
+  s_1df716b35aa977::t_9fde4119395b5b 711-712
+  s_1df716b35aa977::t_8d23b459508f8b 713
+  s_1df716b35aa977::t_e4c5a9df99850b 702-709,718-720
+  s_1df716b35aa977::t_e3c8d78a87dc50 670,689,716
+  s_1df716b35aa977::t_b6179af9d4512a 661-669,673-688,691-694,696-701,710,714-715,721-722
+  s_1df716b35aa977::t_d82299b5f33068 671,717
+src/main/local-files.test.ts
+  s_1df716b35aa977::t_221268c45bb4a1 8,73-101
+src/main/local-files.ts
+  s_1df716b35aa977::t_d40cab4ace37a7 247
+  s_1df716b35aa977::t_0a38d278efd5e2 7,217-218,228-242,248-270,283,324-333
+src/renderer/src/toolPresentation.ts
+  s_1df716b35aa977::t_fbbc64de3c79fb 21
+src/renderer/src/state.ts
+  s_1df716b35aa977::t_fbbc64de3c79fb 5,104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "336bd1ff13a07b9bff8bf0e2579fe5de30766f65",
+  "prompts": {},
+  "sessions": {
+    "s_1df716b35aa977": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a594-3686-76c3-b1b1-8ff9eddef44e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    }
+  }
+}
