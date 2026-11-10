@@ -2,6 +2,7 @@ import type { Approval, PraxisEvent, SessionSnapshot, SessionSummary, Transcript
 import { readAgentReports } from './messagePresentation'
 import { applyAgentEvent, type AgentExecution } from './agentPresentation'
 import { updateContext, type ContextUsage } from './contextUsage'
+import { pythonResult } from './pythonOutput'
 
 export interface DisplayMessage extends TranscriptMessage {
   output?: string
@@ -100,7 +101,7 @@ function finishTurn(conversation: Conversation, turnId: string | undefined, stat
 
 export function toolStatus(message: DisplayMessage): string | undefined {
   const result = message.structured_output
-  if (message.status === 'cancelled' || result?.status === 'cancelled') return 'cancelled'
+  if (message.status === 'cancelled' || result?.status === 'cancelled' || pythonResult(message)?.error_kind === 'cancelled') return 'cancelled'
   if (message.status === 'denied') return 'denied'
   if (message.error || message.status === 'failed' || result?.status === 'failed' || result?.status === 'spawn_failed'
     || isCommand(message) && typeof result?.exit_code === 'number' && result.exit_code !== 0) return 'failed'

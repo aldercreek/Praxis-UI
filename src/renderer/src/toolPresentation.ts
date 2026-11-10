@@ -18,6 +18,7 @@ const actions: Record<string, { verb: string; running: string; completed: string
   edit_file: { verb: 'Edit', running: 'Editing', completed: 'Edited', object: 'file', kind: 'edit' },
   write_file: { verb: 'Write', running: 'Writing', completed: 'Wrote', object: 'file', kind: 'edit' },
   run_command: { verb: 'Run', running: 'Running', completed: 'Ran', object: 'command', kind: 'command' },
+  run_code: { verb: 'Run', running: 'Running', completed: 'Ran', object: 'Python', kind: 'tool' },
   wait_command: { verb: 'Read', running: 'Reading', completed: 'Read', object: 'command output', kind: 'command' },
   view_image: { verb: 'View image', running: 'Viewing image', completed: 'Viewed image', object: '', kind: 'image' },
   read_image: { verb: 'View image', running: 'Viewing image', completed: 'Viewed image', object: '', kind: 'image' },

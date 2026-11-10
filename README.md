@@ -21,6 +21,7 @@ Praxis-UI is an Electron client for [Praxis](https://github.com/aldercreek/Praxi
 
 - **Persistent conversations.** Reopen sessions and follow streaming responses from the same backend used by the terminal.
 - **Visible execution.** Inspect tool arguments, command output, per-turn plans, subagent activity, and changed files.
+- **Python execution.** Read source, stdout/stderr, results and exceptions separately, copy code or output, and open saved overflow logs. Cancelled calls appear as Stopped, including when reopening a chat.
 - **Direct control.** Send follow-ups during execution, approve or deny tools, stop a turn, and resume or delete retained input.
 - **Delete chats.** Use a chat's `…` menu or `/delete`, then confirm. Running work stops before history is removed; workspace files are preserved.
 - **Document previews.** Open text, Markdown, images, and PDFs alongside the conversation; reveal files in your system file manager.

@@ -11,6 +11,7 @@ import { fileDiffLines } from './fileDiff'
 import { CopyButton } from './CopyButton'
 import { stripAnsi } from './ansi'
 import { commandOutcome } from './commandOutput'
+import { PythonExecution } from './PythonExecution'
 
 // While an action runs its semantic icon stays in place and pulses gently.
 export function ToolIcon({ kind, loading = false }: { kind: ToolIconKind; loading?: boolean }) {
@@ -24,6 +25,7 @@ export function ToolMessage({ message, onExpand }: { message: DisplayMessage; on
   const tool = presentTool(message)
   const argument = message.arguments || {}
   const isCommand = tool.kind === 'command'
+  const isPython = tool.name === 'run_code'
   const isEdit = tool.kind === 'edit'
   const awaiting = tool.status === 'Awaiting approval'
   const running = tool.running || tool.status === 'Queued'
@@ -72,7 +74,8 @@ export function ToolMessage({ message, onExpand }: { message: DisplayMessage; on
     </summary>
     <div className={`tool-details ${hasDiff ? 'has-diff' : ''}`}>
       {tool.displayName !== tool.name && <div className="tool-identity"><span>Tool</span><code>{tool.name}</code></div>}
-      {showResult && <div className={isCommand ? 'tool-log' : 'tool-content'} ref={output} tabIndex={0} role="region" aria-label={isCommand ? 'Shell output' : 'Tool output'}
+      {isPython && <PythonExecution message={message} />}
+      {showResult && !isPython && <div className={isCommand ? 'tool-log' : 'tool-content'} ref={output} tabIndex={0} role="region" aria-label={isCommand ? 'Shell output' : 'Tool output'}
         onScroll={event => { const node = event.currentTarget; followOutput.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24 }}>
         {isCommand && <div className="exec-language"><span>{Array.isArray(argument.argv) ? 'command' : 'shell'}</span><span className="command-actions">{tool.command && <CopyButton text={tool.command} label="Copy command" size={14} className="code-copy" />}{copiedOutput && <CopyButton text={copiedOutput} label="Copy output" size={14} className="code-copy" />}</span></div>}
         {isCommand && tool.command && <pre className="command-line">{tool.command}</pre>}
@@ -84,7 +87,7 @@ export function ToolMessage({ message, onExpand }: { message: DisplayMessage; on
       {bodyText && <pre className="write-stream">{bodyText}</pre>}
       {hasDiff && <div className="tool-file-change" tabIndex={0} role="region" aria-label="File changes"><pre className="file-diff">{diffLines.map((line, index) => <span key={index}
         className={`diff-${line.kind}`}><span className="diff-sign">{line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : ' '}</span><span>{line.content || '\u00a0'}</span></span>)}</pre></div>}
-      {tool.kind === 'tool' && Object.keys(argument).length > 0 && <Disclosure storageKey={`${message.id}:arguments`} className="tool-arguments">
+      {!isPython && tool.kind === 'tool' && Object.keys(argument).length > 0 && <Disclosure storageKey={`${message.id}:arguments`} className="tool-arguments">
         <summary><ChevronRight className="disclosure-icon" size={12} aria-hidden="true" />{hasDiff ? 'Details' : 'Arguments'}</summary>
         {hasDiff && message.output && <pre>{message.output}</pre>}{hasDiff && resultText && <pre>{resultText}</pre>}
         {Object.keys(argument).length > 0 && <pre>{JSON.stringify(argument, null, 2)}</pre>}

@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
-import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { FileActionResult, FilePreview, PraxisEvent } from '../shared/protocol'
 
@@ -214,6 +214,8 @@ function decodeText(bytes: Buffer, truncated: boolean): string | undefined {
 
 export class LocalFileService {
   private sessionWorkspaces = new Map<string, string>()
+  private sessionRoots = new Map<string, string>()
+  private pythonLogs = new Map<string, Set<string>>()
   private fileIndexes = new Map<string, { expires: number; value: Promise<FileIndex> }>()
   private previewRoots = new Map<string, string>()
 
@@ -223,11 +225,49 @@ export class LocalFileService {
     const response = record(value)
     if (method === 'session.list' && Array.isArray(response?.sessions)) {
       for (const session of response.sessions) this.rememberSession(session)
-    } else if (method === 'session.create' || method === 'session.open') this.rememberSession(response?.session)
+    } else if (method === 'session.create' || method === 'session.open') {
+      this.rememberSession(response?.session)
+      const sessionId = record(response?.session)?.id
+      if (typeof sessionId === 'string' && Array.isArray(response?.messages)) {
+        for (const value of response.messages) {
+          const message = record(value)
+          if (message?.role === 'tool' && message.tool_name === 'run_code') {
+            this.rememberPythonLogs(sessionId, message.structured_output ?? message.content)
+          }
+        }
+      }
+      if (Array.isArray(response?.view_events)) {
+        for (const event of response.view_events) this.rememberBackendEvent(event)
+      }
+    }
   }
 
   rememberBackendEvent(event: PraxisEvent): void {
     if (event.event === 'SessionUpdated') this.rememberSession(event.data.session)
+    if (event.event === 'ToolFinished' && event.session_id && event.data.tool_name === 'run_code') {
+      const result = record(event.data.result)
+      this.rememberPythonLogs(event.session_id, result?.structured_output ?? result?.output)
+    }
+  }
+
+  private rememberPythonLogs(sessionId: string, value: unknown): void {
+    const root = this.sessionRoots.get(sessionId)
+    if (!root) return
+    try {
+      const result = record(typeof value === 'string' ? JSON.parse(value) : value)
+      const files = record(result?.output_files)
+      for (const stream of ['stdout', 'stderr']) {
+        const path = record(files?.[stream])?.path
+        if (typeof path !== 'string' || !isAbsolute(path) || extname(path).toLowerCase() !== '.log') continue
+        assertLocalPath(path)
+        const canonical = realpathSync.native(path)
+        assertLocalPath(canonical)
+        if (pathKey(resolve(path)) !== pathKey(canonical) || !statSync(canonical).isFile()) continue
+        const logs = this.pythonLogs.get(pathKey(root)) ?? new Set<string>()
+        logs.add(pathKey(canonical))
+        this.pythonLogs.set(pathKey(root), logs)
+      }
+    } catch { /* Missing or malformed output references do not block the conversation. */ }
   }
 
   private rememberSession(value: unknown): void {
@@ -240,6 +280,7 @@ export class LocalFileService {
       if (!statSync(canonical).isDirectory()) return
       this.sessionWorkspaces.set(pathKey(declared), canonical)
       this.sessionWorkspaces.set(pathKey(canonical), canonical)
+      this.sessionRoots.set(session.id, canonical)
     } catch { /* Missing historical workspaces do not prevent a session list from loading. */ }
   }
 
@@ -280,6 +321,16 @@ export class LocalFileService {
     const input = record(reference)
     if (!input) throw new Error('Invalid file reference')
     const root = await this.authorizedRoot(input.workspace)
+    // Backend-issued Python logs live outside the project. Grant only the exact
+    // files observed in tool results, never their directory or renderer paths.
+    const logs = this.pythonLogs.get(pathKey(root))
+    if (logs) for (const candidate of fileCandidates(input.path)) {
+      if (!isAbsolute(candidate) || !logs.has(pathKey(resolve(candidate)))) continue
+      const path = await realpath(candidate)
+      if (pathKey(path) !== pathKey(resolve(candidate))) throw new Error('The log location changed. Run the code again.')
+      if (!(await stat(path)).isFile()) throw new Error('Select a log file to preview')
+      return { path, root: dirname(path) }
+    }
     return this.resolveWithinRoot(root, input.path)
   }
 

@@ -3,7 +3,8 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { Message } from './Transcript'
 import { ToolMessage } from './ToolMessage'
-import { MarkdownContent } from './MarkdownContent'
+import { FileNavigationContext, MarkdownContent } from './MarkdownContent'
+import { PythonExecution } from './PythonExecution'
 import { QuoteContext } from './QuoteContext'
 import { cleanTableHtml, copyTable, tableSource } from './tableActions'
 import { tableQuoteText } from './quote'
@@ -94,6 +95,41 @@ describe('user message actions', () => {
 })
 
 describe('tool details', () => {
+  it('separates Python source, streams and results while hiding runtime metadata', async () => {
+    const openFile = vi.fn()
+    const message: DisplayMessage = { id: 'python', role: 'tool', tool_name: 'run_code', status: 'complete', arguments: { code: 'print("Hello")\n42' }, content: JSON.stringify({ stdout: '\x1b[32mHello\x1b[0m', stderr: 'A warning', result: 42, state_lost: true, worker_created: true, output_files: { stdout: { path: 'C:/logs/output.log', complete: false }, stderr: { path: 'https://example.com/log' } } }) }
+    await act(async () => root.render(createElement(FileNavigationContext.Provider, { value: { workspace: 'C:/work', openFile, onError: vi.fn() } }, createElement(PythonExecution, { message }))))
+    expect(container.querySelector('[aria-label="Python code"]')!.textContent).toBe('print("Hello")\n42')
+    expect(container.querySelector('[aria-label="Python output"]')!.textContent).toBe('Hello')
+    expect(container.querySelector('[aria-label="Python error output"]')!.textContent).toBe('A warning')
+    expect(container.querySelector('[aria-label="Python result"]')!.textContent).toBe('42')
+    expect(container.textContent).not.toMatch(/state_lost|worker_created/)
+    await click('Copy Python code')
+    expect(writeText).toHaveBeenLastCalledWith('print("Hello")\n42')
+    await click('Copy Python output')
+    expect(writeText).toHaveBeenLastCalledWith('Hello\nA warning\n42')
+    const links = container.querySelectorAll<HTMLButtonElement>('.tool-file-link')
+    expect(links).toHaveLength(1)
+    await act(async () => links[0].click())
+    expect(openFile).toHaveBeenCalledWith('C:/logs/output.log')
+    expect(container.textContent).toContain('Saved log is truncated')
+  })
+  it.each([0, false])('preserves a Python result of %s', async result => {
+    await act(async () => root.render(createElement(PythonExecution, { message: { id: 'python', role: 'tool', tool_name: 'run_code', content: JSON.stringify({ result }), status: 'complete' } })))
+    expect(container.querySelector('[aria-label="Python result"]')!.textContent).toBe(String(result))
+  })
+  it('shows Python exceptions and raw legacy output but suppresses cancellation tracebacks', async () => {
+    const render = async (content: string) => act(async () => root.render(createElement(ToolMessage, { message: { id: 'python', role: 'tool', tool_name: 'run_code', content, status: 'failed', tool_finished: true } })))
+    await render(JSON.stringify({ error: 'ValueError: invalid input', error_kind: 'runtime', state_lost: false }))
+    expect(container.querySelector('[aria-label="Python error"]')!.textContent).toBe('ValueError: invalid input')
+    expect(container.querySelector('.tool-message')!.getAttribute('data-status')).toBe('failed')
+    await render(JSON.stringify({ error: 'ExecutionStopped: cancelled', error_kind: 'cancelled', state_lost: true }))
+    expect(container.querySelector('.tool-message')!.getAttribute('data-status')).toBe('cancelled')
+    expect(container.textContent).toContain('Execution stopped')
+    expect(container.textContent).not.toMatch(/ExecutionStopped|state_lost/)
+    await render('Legacy Python failure')
+    expect(container.textContent).toContain('Legacy Python failure')
+  })
   it('copies a command and clean output and presents its exit code', async () => {
     await act(async () => root.render(createElement(ToolMessage, { message: { id: 'cmd', role: 'tool', tool_name: 'run_command', content: '', output: '\x1b[32mDone\x1b[0m', arguments: { command: 'npm test' }, status: 'complete', tool_finished: true, structured_output: { exit_code: 0 } } })))
     await click('Copy command')

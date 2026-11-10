@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { FILE_PREVIEW_LIMITS, LocalFileService, PREVIEW_CSP } from './local-files'
-import type { FileActionResult, FileReference } from '../shared/protocol'
+import type { FileActionResult, FileReference, PraxisEvent } from '../shared/protocol'
 
 let directory: string
 let workspace: string
@@ -70,6 +70,37 @@ describe('sandboxed HTML resources', () => {
 })
 
 describe('local file boundaries', () => {
+  it.each(['event', 'snapshot', 'journal'])('opens only backend-referenced Python logs from a %s', source => {
+    return (async () => {
+      const path = write(join(outside, 'python-stdout.log'), 'Full output')
+      const other = write(join(outside, 'private.log'), 'Unreferenced file')
+      const session = { id: 'python-session', workspace }
+      const output = JSON.stringify({ stdout: 'Preview', output_files: { stdout: { path, complete: true } } })
+      const event: PraxisEvent = { event: 'ToolFinished', session_id: session.id, turn_id: 'turn', agent_id: 'main', sequence: 1, data: { tool_name: 'run_code', result: { success: true, output } } }
+      await expect(service.preview(reference(path))).rejects.toThrow('inside its workspace')
+      if (source === 'event') {
+        service.rememberBackendResponse('session.create', { session })
+        service.rememberBackendEvent(event)
+      } else service.rememberBackendResponse('session.open', { session,
+        messages: source === 'snapshot' ? [{ role: 'tool', tool_name: 'run_code', content: output }] : [],
+        view_events: source === 'journal' ? [event] : [] })
+      expect(await service.preview(reference(path))).toMatchObject({ kind: 'text', text: 'Full output' })
+      await service.open(reference(path))
+      expect(openPath).toHaveBeenCalledWith(path)
+      await expect(service.preview(reference(other))).rejects.toThrow('inside its workspace')
+      await expect(service.previewToken(outside)).rejects.toThrow('not authorized')
+      const anotherWorkspace = join(directory, 'another')
+      mkdirSync(anotherWorkspace)
+      service.rememberBackendResponse('session.create', { session: { id: 'other', workspace: anotherWorkspace } })
+      await expect(service.preview(reference(path, anotherWorkspace))).rejects.toThrow('inside its workspace')
+      rmSync(path)
+      symlinkSync(outside, join(directory, 'linked-logs'), process.platform === 'win32' ? 'junction' : 'dir')
+      const linked = join(directory, 'linked-logs', 'private.log')
+      service.rememberBackendEvent({ ...event, data: { tool_name: 'run_code', result: { output: JSON.stringify({ output_files: { stdout: { path: linked } } }) } } })
+      await expect(service.preview(reference(linked))).rejects.toThrow('inside its workspace')
+    })()
+  })
+
   it('resolves relative, absolute and file URLs with Chinese, spaces and literal # characters', async () => {
     const name = '报告 #1 结果.md'
     const path = write(join(workspace, name), '# 完成\n测试内容')

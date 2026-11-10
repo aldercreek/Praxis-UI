@@ -5,6 +5,22 @@ import { applyEvent, applySnapshot, emptyConversation, type Conversation } from 
 const session: SessionSummary = { id: 'session-a', title: 'Task A', workspace: '/work', model: 'test', status: 'running', updated_at: '2026-10-20T00:00:00Z' }
 const event = (name: string, sequence: number, data: Record<string, unknown> = {}, agentId = 'main'): PraxisEvent => ({ event: name, session_id: session.id, turn_id: 'turn-a', agent_id: agentId, sequence, data })
 
+describe('Python execution status', () => {
+  it.each(['main', 'worker'])('normalizes live and restored cancellation for %s', agent => {
+    let current = applyEvent(emptyConversation(), event('ToolCallPrepared', 1, { call_id: 'python', tool_name: 'run_code', arguments: { code: 'while True: pass' } }, agent))
+    current = applyEvent(current, event('ToolFinished', 2, { call_id: 'python', tool_name: 'run_code', result: { success: false, output: JSON.stringify({ error_kind: 'cancelled', error: 'stopped', state_lost: true }) } }, agent))
+    expect(current.messages[0]).toMatchObject({ status: 'cancelled' })
+    expect(current.messages[0].error).toBeFalsy()
+    const restored = applySnapshot({ session, sequence: 2, approvals: [], messages: [{ ...current.messages[0], status: 'failed' }] })
+    expect(restored.messages[0].status).toBe('cancelled')
+  })
+  it('does not mistake user output for cancellation', () => {
+    let current = applyEvent(emptyConversation(), event('ToolCallPrepared', 1, { call_id: 'python', tool_name: 'run_code', arguments: {} }))
+    current = applyEvent(current, event('ToolFinished', 2, { call_id: 'python', result: { success: false, output: JSON.stringify({ error_kind: 'runtime', error: 'cancelled', result: { error_kind: 'cancelled' } }) } }))
+    expect(current.messages[0].status).toBe('failed')
+  })
+})
+
 describe('agent collaboration presentation', () => {
   const report = { sender_id: 'reviewer', recipient_id: 'parent', content: 'Review complete.' }
   const envelope = '[Agent collaboration messages; source-labelled task data]\n' + JSON.stringify([report])

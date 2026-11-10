@@ -60,6 +60,9 @@ details > summary:hover > .tool-head-main > .disclosure-icon, details > summary:
 .tool-log:focus-visible, .tool-content:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .tool-details pre { margin: 0; font: 400 12px/18px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; }
 .exec-language { font: 400 12px/19.2px var(--mono); }
+.python-output-section { margin-top: 8px; }
+.python-output-label { color: #626262; font: 400 12px/20px var(--font-ui); }
+.python-log-reference { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
 .tool-waiting { color: #626262; font: 400 12px/18px var(--mono); }
 .tool-identity { display: flex; gap: 8px; margin-bottom: 6px; color: #626262; font: 12px/18px var(--font-ui); }
 .tool-identity code { min-width: 0; overflow-wrap: anywhere; font: 12px/18px var(--mono); }

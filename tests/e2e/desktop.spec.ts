@@ -658,6 +658,68 @@ async function openGroupFor(tool: Locator): Promise<void> {
   await expect(tool.locator(':scope > summary')).toBeVisible()
 }
 
+test('Python execution shows results, opens saved logs and distinguishes stopped from failed', async () => {
+  const logPath = join(profile, 'python-stdout.log')
+  await writeFile(logPath, 'Full Python output from the saved log.\n')
+  const sessionId = await startControlledTurn('Python execution review')
+  const prepared = (call_id: string, code: string): TestEvent => ({ event: 'ToolCallPrepared', data: { call_id, tool_name: 'run_code', arguments: { code } } })
+  await emitEvents(sessionId,
+    prepared('python-result', 'totals = {"books": 225, "food": 100}\nprint("Processed 4 records")\ntotals'),
+    { event: 'ToolStarted', data: { call_id: 'python-result', tool_name: 'run_code' } })
+  const result = toolMessage('python-result')
+  await result.locator('xpath=ancestor::details[contains(@class,"tool-group")][1]').locator(':scope > summary').press('Enter')
+  await expect(result.locator(':scope > summary')).toBeVisible()
+  await result.locator(':scope > summary').press('Enter')
+  await expect(result.getByRole('region', { name: 'Python execution' })).toContainText('Waiting for output')
+  await emitEvents(sessionId, { event: 'ToolFinished', data: { call_id: 'python-result', tool_name: 'run_code', result: { success: true, output: JSON.stringify({ stdout: 'Processed 4 records\n', stderr: '', result: { books: 225, food: 100 }, worker_created: true, state_lost: false, output_files: { stdout: { path: logPath, complete: true } } }) } } })
+  await expect(result.getByLabel('Python output', { exact: true })).toHaveText('Processed 4 records\n')
+  await expect(result.getByLabel('Python result', { exact: true })).toContainText('225')
+  await expect(result).not.toContainText(/state_lost|worker_created/)
+  await result.getByRole('button', { name: 'Open stdout log', exact: true }).click()
+  await expect(page.locator('.file-preview pre.file-text')).toContainText('Full Python output from the saved log.')
+  await page.getByRole('button', { name: 'Close preview', exact: true }).click()
+  await page.screenshot({ path: test.info().outputPath('python-results.png'), animations: 'disabled' })
+  await emitEvents(sessionId,
+    prepared('python-stop', 'while True:\n    pass'),
+    { event: 'ToolFinished', data: { call_id: 'python-stop', tool_name: 'run_code', result: { success: false, output: JSON.stringify({ error_kind: 'cancelled', error: 'ExecutionStopped', state_lost: true }) } } },
+    prepared('python-error', '1 / 0'),
+    { event: 'ToolFinished', data: { call_id: 'python-error', tool_name: 'run_code', result: { success: false, output: JSON.stringify({ error_kind: 'runtime', error: 'ZeroDivisionError: division by zero', state_lost: false }) } } })
+  const stopped = toolMessage('python-stop')
+  const failed = toolMessage('python-error')
+  await expect(stopped.locator(':scope > summary')).toBeVisible()
+  await stopped.locator(':scope > summary').press('Enter')
+  await expect(stopped).toHaveAttribute('data-status', 'cancelled')
+  await expect(stopped.locator(':scope > summary')).toContainText('Stopped')
+  await expect(stopped).toContainText('Execution stopped')
+  await expect(stopped).not.toContainText(/ExecutionStopped|state_lost/)
+  await failed.locator(':scope > summary').press('Enter')
+  await expect(failed).toHaveAttribute('data-status', 'failed')
+  await expect(failed.getByLabel('Python error', { exact: true })).toHaveText('ZeroDivisionError: division by zero')
+  await application.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setMinimumSize(390, 400); window.setContentSize(390, 760) })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await failed.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: test.info().outputPath('python-errors-compact.png'), animations: 'disabled' })
+  // Controlled fixture events are transient; seed the persisted projection
+  // separately, including an old failed status that the UI must normalize.
+  await page.evaluate(({ sessionId, logPath }) => window.praxis.request('input.submit', { session_id: sessionId, test_history: [
+    { id: 'saved-user', role: 'user', content: 'Python execution review', turn_id: 'saved-turn' },
+    { id: 'saved:python-result', role: 'tool', tool_name: 'run_code', status: 'complete', tool_finished: true, content: JSON.stringify({ result: 325, output_files: { stdout: { path: logPath, complete: true } } }) },
+    { id: 'saved:python-stop', role: 'tool', tool_name: 'run_code', status: 'failed', tool_finished: true, content: JSON.stringify({ error_kind: 'cancelled', error: 'ExecutionStopped', state_lost: true }) },
+    { id: 'saved:python-error', role: 'tool', tool_name: 'run_code', status: 'failed', tool_finished: true, content: JSON.stringify({ error_kind: 'runtime', error: 'ZeroDivisionError: division by zero' }) }
+  ] }), { sessionId, logPath })
+  await page.reload()
+  await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click()
+  await page.locator('.session-item').filter({ hasText: 'Python execution review' }).click()
+  await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click()
+  await expect(toolMessage('python-stop')).toHaveAttribute('data-status', 'cancelled')
+  await expect(toolMessage('python-error')).toHaveAttribute('data-status', 'failed')
+  await toolMessage('python-result').locator('xpath=ancestor::details[contains(@class,"tool-group")][1]').locator(':scope > summary').press('Enter')
+  await expect(toolMessage('python-result').locator(':scope > summary')).toBeVisible()
+  await toolMessage('python-result').locator(':scope > summary').press('Enter')
+  await toolMessage('python-result').getByRole('button', { name: 'Open stdout log', exact: true }).click()
+  await expect(page.locator('.file-preview pre.file-text')).toContainText('Full Python output from the saved log.')
+})
+
 test('conversation navigation previews, jumps, scrolls independently and persists colored bookmarks', async () => {
   const sessionId = await startControlledTurn('对话导航验收')
   const history = Array.from({ length: 100 }, (_, index) => [
