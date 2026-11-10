@@ -1,5 +1,3 @@
-<p align="center"><img src="docs/assets/overview.svg" alt="Praxis Desktop connects to a local service, agent team and persistent sessions" width="100%" /></p>
-
 <h1 align="center">Praxis Desktop</h1>
 
 <p align="center"><strong>See the work. Talk to the team. Keep the context.</strong></p>
@@ -29,8 +27,6 @@ Praxis-UI is an Electron client for [Praxis](https://github.com/aldercreek/Praxi
 - **MCP status.** Type `/mcp` to view configured service names and connection states, with a refresh button. This works without a selected chat or model API key and does not send a model instruction.
 
 ## Follow the team
-
-![Direct peer messaging and live team context, with waits that wake on collaboration changes](docs/assets/collaboration.svg)
 
 The main agent can create focused workers and optionally pass along its retained conversation. Workers can message the parent and each other. Open an agent's details to see its task, tool activity and messages labelled by sender; attribution survives reopening a current chat.
 
