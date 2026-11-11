@@ -1,0 +1,21 @@
+src/renderer/src/state.ts
+  s_43e924c679c1eb::t_94eb2478795f15 199-204
+src/renderer/src/state.test.ts
+  s_43e924c679c1eb::t_94eb2478795f15 8-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "1ac2925c3565d1aa3152dc15b9e06ea54e7bb9a0",
+  "prompts": {},
+  "sessions": {
+    "s_43e924c679c1eb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c87b-7984-7fd1-b76c-a67eb47c6b1b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "aldercreek <57739268+aldercreek@users.noreply.github.com>"
+    }
+  }
+}
