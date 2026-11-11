@@ -196,6 +196,12 @@ export function applyEvent(current: Conversation, event: PraxisEvent): Conversat
     case 'ModelRequestStarted':
       if (!child) next.activity = 'Thinking'
       break
+    case 'ModelRequestFailed':
+    case 'ModelRequestCancelled':
+      next.messages = current.messages.map(message => message.id === assistantKey(event)
+        ? { ...message, status: event.event === 'ModelRequestFailed' ? 'failed' : 'cancelled' }
+        : message)
+      break
     case 'AssistantTextDelta':
       next.messages = updateMessage(current.messages, assistantKey(event), message => ({
         ...message, id: assistantKey(event), role: 'assistant', content: (message?.content || '') + textOf(data.text), turn_id: event.turn_id, agent_id: event.agent_id, child_turn_id: textOf(data.child_turn_id) || undefined, status: 'streaming'

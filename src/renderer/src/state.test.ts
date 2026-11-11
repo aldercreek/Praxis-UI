@@ -5,6 +5,19 @@ import { applyEvent, applySnapshot, emptyConversation, type Conversation } from 
 const session: SessionSummary = { id: 'session-a', title: 'Task A', workspace: '/work', model: 'test', status: 'running', updated_at: '2026-10-20T00:00:00Z' }
 const event = (name: string, sequence: number, data: Record<string, unknown> = {}, agentId = 'main'): PraxisEvent => ({ event: name, session_id: session.id, turn_id: 'turn-a', agent_id: agentId, sequence, data })
 
+describe('model request lifecycle', () => {
+  it.each(['ModelRequestFailed', 'ModelRequestCancelled'])('closes only the matching response for %s', name => {
+    let current = applyEvent(emptyConversation(), event('AssistantTextDelta', 1, { request_number: 1, text: 'parent' }))
+    current = applyEvent(current, event('AssistantTextDelta', 2, { request_number: 1, text: 'child', child_turn_id: 'child-run' }, 'worker'))
+    current = applyEvent(current, event(name, 3, { request_number: 1, child_turn_id: 'child-run' }, 'worker'))
+    expect(current.messages[0].status).toBe('streaming')
+    expect(current.messages[1].status).toBe(name === 'ModelRequestFailed' ? 'failed' : 'cancelled')
+    current = applyEvent(current, event('ModelRequestCompleted', 4, { request_number: 2, output_text: 'retry succeeded', child_turn_id: 'child-run' }, 'worker'))
+    expect(current.messages[1].status).toBe(name === 'ModelRequestFailed' ? 'failed' : 'cancelled')
+    expect(current.messages[2]).toMatchObject({ content: 'retry succeeded', status: 'complete' })
+  })
+})
+
 describe('Python execution status', () => {
   it.each(['main', 'worker'])('normalizes live and restored cancellation for %s', agent => {
     let current = applyEvent(emptyConversation(), event('ToolCallPrepared', 1, { call_id: 'python', tool_name: 'run_code', arguments: { code: 'while True: pass' } }, agent))
