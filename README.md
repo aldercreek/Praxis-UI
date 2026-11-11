@@ -58,7 +58,7 @@ npm run dev
 
 In **Settings**, select your workspace. If needed, choose the Praxis repository and its Python interpreter, then configure your model provider. The backend uses the Responses API.
 
-You can provide `ADA_API_KEY`, `ADA_BASE_URL`, and `ADA_MODEL` through the environment. API keys saved in desktop settings use Electron's system-backed `safeStorage` encryption.
+Choose a required `praxis.yaml` model configuration file in Settings (default: `~/.praxis/praxis.yaml`). Models, gateway URLs, compression, and worker choices are loaded by Praxis from this file. Set the credential environment variables named in that file before starting the service. Saving Settings reloads the file when no sessions are running.
 
 Build and run the compiled app:
 
@@ -100,7 +100,7 @@ When opening a conversation, the client subscribes before requesting a snapshot,
 | --- | --- |
 | Workspace | Default directory for new sessions |
 | Praxis directory / Python interpreter | Locate and launch the shared backend |
-| Model / base URL / API key | Configure the backend's Responses API provider |
+| Model configuration file | Load providers, models, compression, and worker settings from YAML |
 | Approval mode | Shared approval policy; cannot change during active turns |
 | `PRAXIS_PATH` | Override automatic Praxis repository discovery |
 | `PRAXIS_DATA_DIR` | Backend discovery, authentication, and session database |

@@ -39,7 +39,7 @@ async function fixture() {
     }
     res.setHeader('Content-Type', 'application/json')
     if (url.pathname === '/api/mcp/servers') { res.end(JSON.stringify({ servers: [{ name: 'database', state: 'connected' }] })); return }
-    if (url.pathname.endsWith('/health')) { res.end(JSON.stringify({ service: 'praxis', instance_id: 'instance', ready: true, protocol_version: 1, model: 'test', configured: true })); return }
+    if (url.pathname.endsWith('/health')) { res.end(JSON.stringify({ service: 'praxis', instance_id: 'instance', ready: true, protocol_version: 2, model: 'test', configured: true })); return }
     if (url.pathname.endsWith('/snapshot')) {
       if (deletedStatus) { res.writeHead(deletedStatus); res.end('{}'); return }
       const body = JSON.stringify({ session: summary, sequence: journal.length, messages: [], approvals: [], pending_inputs: [] })

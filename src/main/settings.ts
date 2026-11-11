@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { safeStorage } from 'electron'
+import { homedir } from 'node:os'
 import type { DesktopSettings } from '../shared/protocol'
 
 interface SavedSettings {
@@ -8,10 +8,9 @@ interface SavedSettings {
   pythonPath?: string
   workspace?: string
   model?: string
-  baseUrl?: string
+  configPath?: string
   bypassApprovals?: boolean
   notifications?: boolean
-  encryptedApiKey?: string
 }
 
 function findPraxisPath(appPath: string): string {
@@ -30,7 +29,6 @@ function findPraxisPath(appPath: string): string {
 
 export class SettingsStore {
   private saved: SavedSettings = {}
-  private key = ''
   private defaults: DesktopSettings
 
   constructor(private file: string, appPath: string) {
@@ -39,38 +37,27 @@ export class SettingsStore {
       praxisPath,
       pythonPath: '',
       workspace: praxisPath,
-      model: process.env.ADA_MODEL || 'auto(free)',
-      baseUrl: process.env.ADA_BASE_URL || '',
+      model: '',
+      configPath: process.env.PRAXIS_CONFIG || join(process.env.PRAXIS_DATA_DIR || join(homedir(), '.praxis'), 'praxis.yaml'),
       bypassApprovals: true,
-      notifications: true,
-      apiKeyConfigured: Boolean(process.env.ADA_API_KEY)
+      notifications: true
     }
     try {
       const data = JSON.parse(readFileSync(file, 'utf8')) as SavedSettings
-      for (const field of ['praxisPath', 'pythonPath', 'workspace', 'model', 'baseUrl', 'encryptedApiKey'] as const) {
+      for (const field of ['praxisPath', 'pythonPath', 'workspace', 'model', 'configPath'] as const) {
         if (typeof data[field] === 'string') this.saved[field] = data[field]
       }
       if (typeof data.bypassApprovals === 'boolean') this.saved.bypassApprovals = data.bypassApprovals
       if (typeof data.notifications === 'boolean') this.saved.notifications = data.notifications
-      if (this.saved.encryptedApiKey && safeStorage.isEncryptionAvailable()) {
-        this.key = safeStorage.decryptString(Buffer.from(this.saved.encryptedApiKey, 'base64'))
-      }
     } catch { /* The first launch uses the existing Praxis environment. */ }
   }
 
   get(): DesktopSettings {
-    return {
-      ...this.defaults,
-      ...Object.fromEntries(Object.entries(this.saved).filter(([key]) => key !== 'encryptedApiKey')),
-      apiKeyConfigured: Boolean(this.key || process.env.ADA_API_KEY)
-    }
+    return { ...this.defaults, ...this.saved }
   }
 
-  getApiKey(): string { return this.key || process.env.ADA_API_KEY || '' }
-
-  update(patch: Partial<DesktopSettings> & { apiKey?: string }): DesktopSettings {
+  update(patch: Partial<DesktopSettings>): DesktopSettings {
     const next = { ...this.saved }
-    let nextKey = this.key
     if (patch.notifications !== undefined) {
       if (typeof patch.notifications !== 'boolean') throw new Error('Invalid notification preference')
       next.notifications = patch.notifications
@@ -79,7 +66,7 @@ export class SettingsStore {
       if (typeof patch.bypassApprovals !== 'boolean') throw new Error('Invalid approval mode')
       next.bypassApprovals = patch.bypassApprovals
     }
-    for (const field of ['praxisPath', 'pythonPath', 'workspace', 'model', 'baseUrl'] as const) {
+    for (const field of ['praxisPath', 'pythonPath', 'workspace', 'model', 'configPath'] as const) {
       if (patch[field] !== undefined) {
         if (typeof patch[field] !== 'string' || patch[field]!.length > 4096) throw new Error('Invalid setting value')
         next[field] = patch[field]!.trim()
@@ -87,21 +74,12 @@ export class SettingsStore {
     }
     if (next.praxisPath !== undefined && !next.praxisPath) throw new Error('Choose a Praxis project directory')
     if (next.workspace !== undefined && !next.workspace) throw new Error('Choose a workspace directory')
-    if (next.baseUrl) {
-      const url = new URL(next.baseUrl)
-      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('The API URL must use HTTP or HTTPS')
-    }
-    if (patch.apiKey !== undefined && patch.apiKey.trim()) {
-      if (!safeStorage.isEncryptionAvailable()) throw new Error('System key storage is unavailable. Set the API key using the ADA_API_KEY environment variable.')
-      nextKey = patch.apiKey.trim()
-      next.encryptedApiKey = safeStorage.encryptString(nextKey).toString('base64')
-    }
+    if (next.configPath !== undefined && !next.configPath) throw new Error('Choose a model configuration file')
     mkdirSync(dirname(this.file), { recursive: true })
     const temporary = this.file + '.tmp'
     writeFileSync(temporary, JSON.stringify(next, null, 2), { encoding: 'utf8', mode: 0o600 })
     renameSync(temporary, this.file)
     this.saved = next
-    this.key = nextKey
     return this.get()
   }
 

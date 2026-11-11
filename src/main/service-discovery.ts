@@ -43,7 +43,7 @@ async function validate(endpoint: ServiceEndpoint): Promise<void> {
   if (!response.ok) throw new Error('Service authentication failed')
   const health = await response.json() as Record<string, unknown>
   if (health.service !== 'praxis' || health.instance_id !== endpoint.instance_id) throw new Error('Service identity mismatch')
-  if (health.protocol_version !== 1) throw new ProtocolError('Incompatible Praxis protocol; update backend and clients together')
+  if (health.protocol_version !== 2) throw new ProtocolError('Incompatible Praxis protocol; update backend and clients together')
   if (!health.ready) throw new Error('Praxis is not ready')
 }
 

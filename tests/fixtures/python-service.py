@@ -186,7 +186,7 @@ def factory(workspace, **options):
     agent.collaboration = runtime
     agent.receive_messages = lambda accept: runtime.receive('parent', accept)
     register_parent_tools(agent.tool_registry, runtime, agent._pump_worker_events,
-                          has_user_input=agent._has_pending_user_input)
+                          has_user_input=agent._has_pending_user_input, models=("offline",))
     agent.restore_history(store.load_conversation_items(session_id))
     return agent
 

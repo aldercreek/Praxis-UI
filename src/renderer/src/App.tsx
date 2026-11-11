@@ -37,13 +37,13 @@ function IconButton({ label, children, onClick, disabled, className = '' }: { la
 
 function SettingsDialog({ praxis, open, close }: { praxis: Praxis; open: boolean; close: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
-  const [draft, setDraft] = useState({ praxisPath: '', pythonPath: '', workspace: '', model: '', baseUrl: '', apiKey: '', bypassApprovals: true, notifications: true })
+  const [draft, setDraft] = useState({ praxisPath: '', pythonPath: '', workspace: '', configPath: '', bypassApprovals: true, notifications: true })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => {
     if (open) {
       const settings = praxis.info?.settings
-      if (settings) setDraft({ praxisPath: settings.praxisPath, pythonPath: settings.pythonPath, workspace: settings.workspace, model: settings.model, baseUrl: settings.baseUrl, apiKey: '', bypassApprovals: settings.bypassApprovals, notifications: settings.notifications })
+      if (settings) setDraft({ praxisPath: settings.praxisPath, pythonPath: settings.pythonPath, workspace: settings.workspace, configPath: settings.configPath, bypassApprovals: settings.bypassApprovals, notifications: settings.notifications })
       setError('')
       ref.current?.showModal()
     } else ref.current?.close()
@@ -59,13 +59,13 @@ function SettingsDialog({ praxis, open, close }: { praxis: Praxis; open: boolean
     event.preventDefault()
     setSaving(true)
     setError('')
-    const changed: Partial<Omit<DesktopSettings, 'apiKeyConfigured'>> & { apiKey?: string } = {}
-    for (const key of ['praxisPath', 'pythonPath', 'workspace', 'model', 'baseUrl'] as const) {
+    const changed: Partial<DesktopSettings> = {}
+    for (const key of ['praxisPath', 'pythonPath', 'workspace', 'configPath'] as const) {
       if (draft[key].trim() !== praxis.info?.settings[key]) changed[key] = draft[key].trim()
     }
-    if (draft.apiKey.trim()) changed.apiKey = draft.apiKey.trim()
     if (draft.bypassApprovals !== praxis.info?.settings.bypassApprovals) changed.bypassApprovals = draft.bypassApprovals
     if (draft.notifications !== praxis.info?.settings.notifications) changed.notifications = draft.notifications
+    changed.configPath = draft.configPath.trim()
     try { await praxis.saveSettings(changed); close() } catch (error) { setError(errorMessage(error)) } finally { setSaving(false) }
   }
   return <dialog ref={ref} className="praxis-dialog settings-dialog" onCancel={event => { if (saving) event.preventDefault(); else close() }} onClose={close} aria-labelledby="settings-title">
@@ -79,9 +79,7 @@ function SettingsDialog({ praxis, open, close }: { praxis: Praxis; open: boolean
         <label className="setting-toggle"><span><span>Bypass approvals</span><small>Run tools without approval prompts in desktop chats.</small></span><input type="checkbox" aria-label="Bypass approvals" checked={draft.bypassApprovals} onChange={event => setDraft({ ...draft, bypassApprovals: event.target.checked })} /></label>
         <label className="setting-toggle"><span><span>Desktop notifications</span><small>Notify when a task finishes or needs approval while Praxis is in the background.</small></span><input type="checkbox" aria-label="Desktop notifications" checked={draft.notifications} onChange={event => setDraft({ ...draft, notifications: event.target.checked })} /></label>
         <div className="settings-section-title model-section">Model connection</div>
-        <label className="field"><span>Model</span><input value={draft.model} onChange={event => setDraft({ ...draft, model: event.target.value })} placeholder="Use Praxis environment settings" /></label>
-        <label className="field"><span>API URL</span><input value={draft.baseUrl} onChange={event => setDraft({ ...draft, baseUrl: event.target.value })} placeholder="Use Praxis environment settings" type="url" /></label>
-        <label className="field"><span>API Key {praxis.info?.settings.apiKeyConfigured && <span className="saved-key">Configured</span>}</span><input value={draft.apiKey} onChange={event => setDraft({ ...draft, apiKey: event.target.value })} placeholder={praxis.info?.settings.apiKeyConfigured ? 'Leave blank to keep the current key' : 'Leave blank to use the key from the environment'} type="password" autoComplete="new-password" /></label>
+        <label className="field"><span>Model configuration file</span><input required value={draft.configPath} onChange={event => setDraft({ ...draft, configPath: event.target.value })} placeholder="Absolute path to praxis.yaml" /><small>Edit this file to choose models, compression, and subagent settings. Credentials come from the environment variables named in the file.</small></label>
         {error && <div className="field-error" role="alert"><CircleAlert size={16} /><span>{error}</span></div>}
       </div>
       <div className="dialog-footer"><span>Runtime or model changes will reconnect Praxis.</span><button type="button" className="button" disabled={saving} onClick={close}>Cancel</button><button type="submit" className="button primary" disabled={saving || !praxis.api}>{saving ? 'Saving…' : 'Save settings'}</button></div>
@@ -330,7 +328,7 @@ export default function App() {
         </div>
       </header>
 
-      {(connectionProblem || praxis.configured === false) && <div className="connection-banner" role="status"><CircleAlert size={16} /><span>{connectionProblem ? praxis.connection.message || 'Unable to connect to local Praxis. Check your runtime settings.' : 'No model API key configured. Add one in Settings or the Praxis environment.'}</span><button type="button" onClick={() => setSettingsOpen(true)}>Open settings</button>{connectionProblem && praxis.api && <button type="button" onClick={() => { void praxis.api.restart().catch(error => praxis.setError(errorMessage(error))) }}>Reconnect</button>}</div>}
+      {(connectionProblem || praxis.configured === false) && <div className="connection-banner" role="status"><CircleAlert size={16} /><span>{connectionProblem ? praxis.connection.message || 'Unable to connect to local Praxis. Check your runtime settings.' : 'Model configuration is unavailable. Check the configuration file and its credential environment variables.'}</span><button type="button" onClick={() => setSettingsOpen(true)}>Open settings</button>{connectionProblem && praxis.api && <button type="button" onClick={() => { void praxis.api.restart().catch(error => praxis.setError(errorMessage(error))) }}>Reconnect</button>}</div>}
 
       <div ref={workspaceRef} className={`workspace-content ${panelTarget ? 'has-panel' : ''} ${showNavigation ? 'has-navigation' : ''}`}>
       <FindBar ref={findRef} scope={workspaceRef} sessionKey={draftKey} contentKey={`${loading}:${panelTarget?.type === 'agent' ? panelTarget.key : ''}`} onNavigate={navigateFind} />

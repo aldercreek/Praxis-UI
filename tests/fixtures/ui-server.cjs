@@ -212,7 +212,7 @@ function dispatch(request) {
   const { id, method, params: p = {} } = request
   const reply = result => output({ id, result })
   const s = sessions.get(p.session_id)
-  if (method === 'initialize') return reply({ protocol_version: 1, model: 'test-model', configured: true, bypass_approvals: bypass })
+  if (method === 'initialize') return reply({ protocol_version: 2, model: 'test-model', configured: true, bypass_approvals: bypass })
   if (method === 'session.list') return reply({ sessions: [...sessions.values()].filter(s => !p.workspace || s.workspace === p.workspace).map(summary) })
   if (method === 'session.create') {
     const s = { id: `session-${++count}`, title: '', workspace: p.workspace, updated_at: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sequence: 0, turn: '', timer: null }
@@ -437,7 +437,7 @@ const server = http.createServer(async (req, res) => {
     ] }))
     return
   }
-  if (url.pathname === '/api/health') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ service: 'praxis', instance_id: instance, protocol_version: 1, ready: true, model: 'test-model', configured: !mcpScenario.startsWith('no-model'), bypass_approvals: bypass })); return }
+  if (url.pathname === '/api/health') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ service: 'praxis', instance_id: instance, protocol_version: 2, ready: true, model: 'test-model', configured: !mcpScenario.startsWith('no-model'), bypass_approvals: bypass })); return }
   if (url.pathname === '/__shutdown') { res.end('{}'); setTimeout(() => process.exit(0), 20); return }
   if (parts[1] === 'sessions' && parts.length === 3 && req.method === 'DELETE') {
     if (deletionScenario === 'fail') {
@@ -505,6 +505,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(0, '127.0.0.1', () => {
   mkdirSync(directory, { recursive: true })
   writeFileSync(join(directory, 'service.token'), token)
-  writeFileSync(join(directory, 'service.json'), JSON.stringify({ port: server.address().port, instance_id: instance, protocol_version: 1, pid: process.pid }))
+  writeFileSync(join(directory, 'service.json'), JSON.stringify({ port: server.address().port, instance_id: instance, protocol_version: 2, pid: process.pid }))
 })
 }

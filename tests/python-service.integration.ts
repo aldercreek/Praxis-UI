@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it } from 'vitest'
@@ -31,7 +31,9 @@ it('shares a real Python session, deduplicates input and resumes retained work a
   directory = await mkdtemp(join(tmpdir(), 'praxis-python-integration-'))
   const repository = resolve(process.env.PRAXIS_PATH || '../Praxis')
   const python = process.env.PRAXIS_PYTHON || join(repository, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')
-  const env = { ...process.env, PYTHONPATH: join(repository, 'src'), ADA_API_KEY: 'offline-test', ADA_MODEL: 'offline', PRAXIS_BYPASS_APPROVALS: '0' }
+  const configPath = join(directory, 'praxis.yaml')
+  await writeFile(configPath, JSON.stringify({ models: { offline: { protocol: 'responses', base_url: 'https://offline.invalid/v1', model: 'offline', context_window: 128000, max_output_tokens: 8192 } } }))
+  const env = { ...process.env, PYTHONPATH: join(repository, 'src'), PRAXIS_CONFIG: configPath, PRAXIS_BYPASS_APPROVALS: '0' }
   processHandle = spawn(python, [resolve('tests/fixtures/python-service.py'), '--data-dir', directory], { env, windowsHide: true, stdio: 'ignore' })
   let record: { pid: number }
   await expect.poll(async () => {

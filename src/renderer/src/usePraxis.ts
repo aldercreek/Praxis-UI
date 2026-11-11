@@ -370,7 +370,7 @@ export function usePraxis() {
     catch (error) { setError(errorMessage(error)); throw error }
   }, [activeId, api])
 
-  const saveSettings = useCallback(async (settings: Partial<Omit<DesktopSettings, 'apiKeyConfigured'>> & { apiKey?: string }) => {
+  const saveSettings = useCallback(async (settings: Partial<DesktopSettings>) => {
     const nextInfo = await api.updateSettings(settings)
     setInfo(nextInfo)
     setConnection(nextInfo.connection)
@@ -378,7 +378,7 @@ export function usePraxis() {
     workspaceRef.current = nextInfo.settings.workspace
     setWorkspace(nextInfo.settings.workspace)
     // Explicit configuration changes reattach the client and reload its snapshots.
-    const engineChanged = ['praxisPath', 'pythonPath', 'model', 'baseUrl', 'apiKey', 'bypassApprovals'].some(key => key in settings)
+    const engineChanged = ['praxisPath', 'pythonPath', 'configPath', 'bypassApprovals'].some(key => key in settings)
     if (engineChanged) {
       setConversations(previous => Object.fromEntries(Object.entries(previous).map(([id, conversation]) => [id, { ...conversation, loaded: false }])))
       setActiveId(null)

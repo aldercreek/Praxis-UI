@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { SettingsStore } from '../src/main/settings'
 import type { DesktopSettings } from '../src/shared/protocol'
 
-vi.mock('electron', () => ({ safeStorage: { isEncryptionAvailable: () => false } }))
 
 let directory: string
 let file: string
@@ -49,4 +48,14 @@ describe('desktop approval preference', () => {
     expect(readFileSync(file, 'utf8')).toBe(before)
     expect(settings.get().bypassApprovals).toBe(false)
   })
+})
+
+
+it('persists a config path without provider-specific defaults', () => {
+  const settings = store()
+  expect(settings.get().model).toBe('')
+  settings.update({ configPath: join(directory, 'models.yaml') })
+  expect(store().get().configPath).toBe(join(directory, 'models.yaml'))
+  expect(store().get()).not.toHaveProperty('baseUrl')
+  expect(store().get()).not.toHaveProperty('apiKeyConfigured')
 })

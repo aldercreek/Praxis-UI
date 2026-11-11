@@ -24,7 +24,7 @@ describe('notification event integration', () => {
     listed = [session()]
     open = async () => snapshot()
     notify.mockReset()
-    const info: DesktopInfo = { connection: { state: 'connected' }, platform: 'win32', version: 'test', settings: { workspace: '/work', praxisPath: '/engine', pythonPath: '', model: 'test', baseUrl: '', apiKeyConfigured: true, bypassApprovals: true, notifications: true } }
+    const info: DesktopInfo = { connection: { state: 'connected' }, platform: 'win32', version: 'test', settings: { workspace: '/work', praxisPath: '/engine', pythonPath: '', model: 'test', configPath: '/config/praxis.yaml', bypassApprovals: true, notifications: true } }
     window.praxis = {
       notify, acknowledge: () => {}, onEvent: (listener: (event: PraxisEvent) => void) => { emit = listener; return () => {} },
       onConnection: () => () => {}, onOpenSession: (listener: (sessionId: string) => void) => { openFromNotification = listener; return () => {} },

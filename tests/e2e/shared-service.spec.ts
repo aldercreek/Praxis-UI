@@ -48,7 +48,9 @@ test.beforeEach(async ({}, testInfo) => {
     '文档服务': { enabled: false }
   } }))
   await writeFile(join(profile, 'settings.json'), JSON.stringify({ praxisPath: repository, pythonPath: python, workspace }))
-  const env = { ...process.env, PRAXIS_DATA_DIR: dataDir, PYTHONPATH: join(repository, 'src'), ADA_API_KEY: 'offline', ADA_MODEL: 'offline', PRAXIS_BYPASS_APPROVALS: '0' }
+  const configPath = join(dataDir, 'praxis.yaml')
+  await writeFile(configPath, JSON.stringify({ models: { offline: { protocol: 'responses', base_url: 'https://offline.invalid/v1', model: 'offline', context_window: 128000, max_output_tokens: 8192 } } }))
+  const env = { ...process.env, PRAXIS_DATA_DIR: dataDir, PYTHONPATH: join(repository, 'src'), PRAXIS_CONFIG: configPath, PRAXIS_BYPASS_APPROVALS: '0' }
   service = spawn(python, [resolve('tests/fixtures/python-service.py'), '--data-dir', dataDir], {
     env: { ...env, PRAXIS_TEST_SEED_HISTORY: '1' }, windowsHide: true, stdio: 'ignore'
   })

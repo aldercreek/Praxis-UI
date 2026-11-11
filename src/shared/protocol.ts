@@ -72,10 +72,9 @@ export interface DesktopSettings {
   pythonPath: string
   workspace: string
   model: string
-  baseUrl: string
+  configPath: string
   bypassApprovals: boolean
   notifications: boolean
-  apiKeyConfigured: boolean
 }
 
 export interface DesktopInfo {
@@ -125,7 +124,7 @@ export interface DesktopAPI {
   request<T = Record<string, unknown>>(method: string, params?: Record<string, unknown>): Promise<T>
   onEvent(listener: (event: PraxisEvent) => void): () => void
   onConnection(listener: (status: ConnectionStatus) => void): () => void
-  updateSettings(settings: Partial<Omit<DesktopSettings, 'apiKeyConfigured'>> & { apiKey?: string }): Promise<DesktopInfo>
+  updateSettings(settings: Partial<DesktopSettings>): Promise<DesktopInfo>
   chooseDirectory(kind: 'workspace' | 'praxis'): Promise<string | null>
   choosePython(): Promise<string | null>
   openExternal(url: string): Promise<void>

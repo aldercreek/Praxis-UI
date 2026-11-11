@@ -77,23 +77,20 @@ async function startBackend(applySettings = false): Promise<void> {
         PYTHONUNBUFFERED: '1',
         PYTHONIOENCODING: 'utf-8',
         PYTHONPATH: [join(config.praxisPath, 'src'), process.env.PYTHONPATH].filter(Boolean).join(delimiter),
-        ADA_API_KEY: settings.getApiKey(),
-        ADA_MODEL: config.model,
+        PRAXIS_CONFIG: config.configPath,
         PRAXIS_BYPASS_APPROVALS: config.bypassApprovals ? '1' : '0'
       }
       delete environment.ELECTRON_RUN_AS_NODE
-      if (config.baseUrl) environment.ADA_BASE_URL = config.baseUrl
       const args = ['-u', '-m', 'praxis_agent.service']
       if (process.env.PRAXIS_DATA_DIR) environment.PRAXIS_DATA_DIR = process.env.PRAXIS_DATA_DIR
       await backend.start({ command: settings.python(), args, cwd: config.praxisPath, env: environment })
       if (applySettings) {
-        await backend.request('settings.update', { model: config.model, base_url: config.baseUrl,
-          ...(settings.getApiKey() ? { api_key: settings.getApiKey() } : {}), bypass_approvals: config.bypassApprovals })
+        await backend.request('settings.update', { config_path: config.configPath, bypass_approvals: config.bypassApprovals })
       }
       // Joining an existing service adopts its settings, including while another
       // terminal is running a turn. Only an explicit settings edit changes them.
-      const shared = await backend.request<{ model: string; base_url?: string; bypass_approvals: boolean }>('initialize')
-      settings.update({ model: shared.model, ...(shared.base_url ? { baseUrl: shared.base_url } : {}), bypassApprovals: shared.bypass_approvals })
+      const shared = await backend.request<{ model: string; config_path: string; bypass_approvals: boolean }>('initialize')
+      settings.update({ model: shared.model, configPath: shared.config_path, bypassApprovals: shared.bypass_approvals })
     } catch (error) {
       backend.status = { state: 'error', message: error instanceof Error ? error.message : String(error) }
       backend.emit('connection', backend.status)
@@ -129,13 +126,12 @@ function registerIPC(): void {
     localFiles.rememberBackendResponse(method, result)
     return result
   })
-  ipcMain.handle('praxis:settings', (event, patch: Partial<DesktopSettings> & { apiKey?: string }) => {
+  ipcMain.handle('praxis:settings', (event, patch: Partial<DesktopSettings>) => {
     trusted(event)
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('Invalid settings')
     return changeConfiguration(async () => {
       const before = settings.get()
-      const needsRestart = Boolean(patch.apiKey?.trim()) ||
-        (['praxisPath', 'pythonPath', 'model', 'baseUrl', 'bypassApprovals'] as const).some(key => patch[key] !== undefined && patch[key] !== before[key])
+      const needsRestart = patch.configPath !== undefined || (['praxisPath', 'pythonPath', 'bypassApprovals'] as const).some(key => patch[key] !== undefined && patch[key] !== before[key])
       if (needsRestart && backend.busy) throw new Error('Stop running sessions before changing model or backend settings.')
       if (needsRestart) validateEngine({ ...before, ...patch })
       if (patch.workspace) assertDirectory(patch.workspace, 'Workspace')
